@@ -175,6 +175,63 @@ var __mcp_mutateOps = {
         return result;
     },
 
+    /*
+     * Easing. Without this every keyframe is linear, which reads mechanically -
+     * and Rive's own transitions carry interpolation, so a linear translation is
+     * not a faithful one.
+     *
+     * `ease` is the influence percentage AE shows in its Keyframe Velocity
+     * dialog. AE requires an ease array whose length matches the property's
+     * dimensionality, so it is expanded per-property rather than assumed 1D.
+     */
+    setEase: function (args) {
+        var layer = __mcp_layerById(args.layerId);
+        var p = __mcp_propByPath(layer, args.path);
+        if (!p.numKeys) { throw new Error("Property has no keyframes to ease"); }
+
+        var influence = Number(args.influence === undefined ? 50 : args.influence);
+        if (influence < 0.1 || influence > 100) { throw new Error("influence must be 0.1-100"); }
+        var mode = args.mode || "both";
+
+        /*
+         * SPATIAL properties take exactly ONE temporal ease, not one per
+         * dimension - a spatial property moves along a single path through
+         * time, so there is only one temporal curve regardless of whether it
+         * is 2D or 3D. Passing one ease per dimension throws
+         * "Unable to call setTemporalEaseAtKey". Only non-spatial multi-
+         * dimensional properties want an ease per dimension.
+         */
+        var dims = 1;
+        var vt = p.propertyValueType;
+        if (vt === PropertyValueType.TwoD) { dims = 2; }
+        else if (vt === PropertyValueType.ThreeD) { dims = 3; }
+        else if (vt === PropertyValueType.COLOR) { dims = 4; }
+        var spatial = (vt === PropertyValueType.TwoD_SPATIAL || vt === PropertyValueType.ThreeD_SPATIAL);
+        if (spatial) { dims = 1; }
+
+        function easeArray(inf) {
+            var arr = [];
+            for (var d = 0; d < dims; d++) { arr.push(new KeyframeEase(0, inf)); }
+            return arr;
+        }
+
+        var indices = args.keyIndices && args.keyIndices.length ? args.keyIndices : null;
+        var touched = 0;
+        for (var k = 1; k <= p.numKeys; k++) {
+            if (indices) {
+                var wanted = false;
+                for (var q = 0; q < indices.length; q++) { if (Number(indices[q]) === k) { wanted = true; } }
+                if (!wanted) { continue; }
+            }
+            var inEase = easeArray(mode === "out" ? 0.1 : influence);
+            var outEase = easeArray(mode === "in" ? 0.1 : influence);
+            p.setTemporalEaseAtKey(k, inEase, outEase);
+            touched++;
+        }
+        return { layerId: layer.id, path: args.path, keysEased: touched,
+                 influence: influence, mode: mode, dimensions: dims, spatial: spatial };
+    },
+
     /* Layer lifecycle. */
     layers: function (args) {
         var cmd = args.command;
@@ -271,6 +328,84 @@ var __mcp_mutateOps = {
             return { layerId: layer.id, removed: args.matchName };
         }
         throw new Error("Unknown effects command: " + cmd);
+    },
+
+    /*
+     * Masks. The reason this exists: translating a Rive LayoutComponent, whose
+     * `clip` property reveals a fixed-width bitmap, is impossible without one.
+     * Scaling the layer instead squashes the artwork rather than revealing it.
+     *
+     * Mask vertices are in LAYER space - (0,0) is the layer's top-left, NOT the
+     * comp origin and NOT the anchor point. A rect from (0,0) to (w,h) crops the
+     * layer to its first w pixels, which is exactly a reveal.
+     *
+     * setRect accepts a `time`, making the mask shape a keyframe, so a reveal
+     * animates without touching scale.
+     */
+    masks: function (args) {
+        var cmd = args.command;
+        var layer = __mcp_layerById(args.layerId);
+        var parade = layer.property("ADBE Mask Parade");
+        if (!parade) { throw new Error("Layer does not support masks"); }
+
+        if (cmd === "list") {
+            var out = [];
+            for (var i = 1; i <= parade.numProperties; i++) {
+                var mk = parade.property(i);
+                out.push({ index: i, name: mk.name, inverted: mk.inverted,
+                           mode: String(mk.maskMode), path: ["ADBE Mask Parade", mk.name] });
+            }
+            return { layerId: layer.id, count: out.length, masks: out };
+        }
+
+        if (cmd === "add") {
+            var m = parade.addProperty("ADBE Mask Atom");
+            if (args.name) { m.name = String(args.name); }
+            if (args.inverted) { m.inverted = true; }
+            if (args.expansion !== undefined) {
+                m.property("ADBE Mask Offset").setValue(Number(args.expansion));
+            }
+            if (args.feather !== undefined) {
+                m.property("ADBE Mask Feather").setValue([Number(args.feather), Number(args.feather)]);
+            }
+            return { layerId: layer.id, maskIndex: m.propertyIndex, name: m.name };
+        }
+
+        if (cmd === "setRect") {
+            var target = args.maskIndex ? parade.property(Number(args.maskIndex))
+                                        : parade.property(parade.numProperties);
+            if (!target) { throw new Error("No mask to set - add one first"); }
+            var left = Number(args.left || 0);
+            var top = Number(args.top || 0);
+            var w = Number(args.width);
+            var h = Number(args.height);
+            if (isNaN(w) || isNaN(h)) { throw new Error("setRect requires width and height"); }
+
+            var shape = new Shape();
+            shape.vertices = [[left, top], [left + w, top], [left + w, top + h], [left, top + h]];
+            shape.inTangents = [[0, 0], [0, 0], [0, 0], [0, 0]];
+            shape.outTangents = [[0, 0], [0, 0], [0, 0], [0, 0]];
+            shape.closed = true;
+
+            var shapeProp = target.property("ADBE Mask Shape");
+            if (args.time !== undefined && args.time !== null) {
+                shapeProp.setValueAtTime(Number(args.time), shape);
+            } else {
+                shapeProp.setValue(shape);
+            }
+            return { layerId: layer.id, maskIndex: target.propertyIndex,
+                     rect: { left: left, top: top, width: w, height: h },
+                     time: (args.time === undefined ? null : Number(args.time)),
+                     numKeys: shapeProp.numKeys };
+        }
+
+        if (cmd === "remove") {
+            var victim = parade.property(Number(args.maskIndex));
+            if (!victim) { throw new Error("No mask at index " + args.maskIndex); }
+            victim.remove();
+            return { layerId: layer.id, removed: Number(args.maskIndex) };
+        }
+        throw new Error("Unknown masks command: " + cmd);
     },
 
     /* Project-level operations. */

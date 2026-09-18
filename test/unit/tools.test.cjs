@@ -25,7 +25,7 @@ test('every tool has a name, a description and an object schema', () => {
 test('the tool surface is the eight documented tools', () => {
   assert.deepStrictEqual(
     TOOLS.map((t) => t.name).sort(),
-    ['ae_animate', 'ae_capture', 'ae_diagnostics', 'ae_effects', 'ae_layers', 'ae_project', 'ae_query', 'ae_set'],
+    ['ae_animate', 'ae_capture', 'ae_diagnostics', 'ae_effects', 'ae_layers', 'ae_masks', 'ae_project', 'ae_query', 'ae_set'],
   );
 });
 
@@ -60,7 +60,8 @@ test('each remaining tool maps to its host op', async () => {
   await reg.callTool('ae_effects', {});
   await reg.callTool('ae_project', {});
   await reg.callTool('ae_diagnostics', {});
-  assert.deepStrictEqual(host.calls.map((c) => c.op), ['keyframes', 'layers', 'effects', 'project', 'problems']);
+  await reg.callTool('ae_masks', { command: 'list', layerId: 1 });
+  assert.deepStrictEqual(host.calls.map((c) => c.op), ['keyframes', 'layers', 'effects', 'project', 'problems', 'masks']);
 });
 
 test('an unknown tool is an isError result rather than a throw', async () => {
@@ -109,4 +110,29 @@ test('ae_capture sequence uses a smaller per-cell edge than a still', async () =
   await reg.callTool('ae_capture', { command: 'sequence' });
   assert.strictEqual(host.calls[0].op, 'captureSequence');
   assert.strictEqual(host.calls[0].args.longEdge, 320);
+});
+
+test('ae_masks documents that vertices are layer-space, the trap that breaks clipping', () => {
+  const masks = TOOLS.find((t) => t.name === 'ae_masks');
+  assert.match(masks.description, /LAYER space/);
+  assert.match(masks.description, /scal/i, 'must steer callers away from scaling as a fake clip');
+});
+
+test('ae_animate applies easing as a second host call, after the keys exist', async () => {
+  const host = stubHost();
+  const reg = createToolRegistry(host.fn);
+  await reg.callTool('ae_animate', {
+    layerId: 7, path: ['a', 'b'],
+    add: [{ time: 0, value: 1 }],
+    ease: { influence: 70, mode: 'both' },
+  });
+  assert.deepStrictEqual(host.calls.map((c) => c.op), ['keyframes', 'setEase']);
+  assert.strictEqual(host.calls[1].args.influence, 70);
+});
+
+test('ae_animate skips the easing call when none is requested', async () => {
+  const host = stubHost();
+  const reg = createToolRegistry(host.fn);
+  await reg.callTool('ae_animate', { layerId: 7, path: ['a', 'b'] });
+  assert.deepStrictEqual(host.calls.map((c) => c.op), ['keyframes']);
 });

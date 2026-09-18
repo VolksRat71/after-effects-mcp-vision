@@ -98,7 +98,10 @@ const TOOLS = [
     description:
       'Add, remove and read keyframes on one property. add and remove apply in the same call; ' +
       'removals are processed first. Returns the full key list afterwards so you can verify without ' +
-      'a second round trip. For a static value with no keyframe, use ae_set instead.',
+      'a second round trip. For a static value with no keyframe, use ae_set instead.\n\n' +
+      'Keyframes are LINEAR by default, which reads mechanically. Pass `ease` to apply temporal ' +
+      'easing afterwards: ease.influence is the percentage AE shows in its Keyframe Velocity ' +
+      'dialog (try 60-75 for UI motion), and ease.mode is in, out or both.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -106,6 +109,15 @@ const TOOLS = [
         path: { type: 'array', items: { type: 'string' } },
         add: { type: 'array', items: { type: 'object', properties: { time: { type: 'number' }, value: {} }, required: ['time', 'value'] } },
         remove: { type: 'array', items: { type: 'number' }, description: '1-based key indices to delete.' },
+        ease: {
+          type: 'object',
+          description: 'Apply temporal easing after the add/remove.',
+          properties: {
+            influence: { type: 'number', description: '0.1-100. AE\'s Keyframe Velocity influence.' },
+            mode: { type: 'string', enum: ['in', 'out', 'both'] },
+            keyIndices: { type: 'array', items: { type: 'number' }, description: 'Default: all keys.' },
+          },
+        },
       },
       required: ['layerId', 'path'],
     },
@@ -213,6 +225,37 @@ const TOOLS = [
     },
   },
   {
+    name: 'ae_masks',
+    description:
+      'Clip a layer with a rectangular mask, and animate that clip.\n\n' +
+      'This is how you reveal part of a layer WITHOUT scaling it. Scaling squashes artwork; ' +
+      'a mask reveals it. If you are translating a design where a fixed-size asset is shown ' +
+      'progressively (an accordion, a wipe, a progress bar), this is the tool, not ae_set scale.\n\n' +
+      'Mask vertices are in LAYER space: (0,0) is the layer\'s top-left corner, not the comp ' +
+      'origin and not the anchor point. A rect from (0,0) sized w x h crops the layer to its ' +
+      'first w pixels.\n\n' +
+      'Pass a `time` to setRect to make the mask shape a keyframe, so the reveal animates. ' +
+      'Call add once, then setRect repeatedly at different times.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', enum: ['add', 'setRect', 'list', 'remove'] },
+        layerId: { type: 'number' },
+        maskIndex: { type: 'number', description: 'Defaults to the most recently added mask.' },
+        name: { type: 'string' },
+        left: { type: 'number', description: 'Rect left in layer space. Default 0.' },
+        top: { type: 'number', description: 'Rect top in layer space. Default 0.' },
+        width: { type: 'number' },
+        height: { type: 'number' },
+        time: { type: 'number', description: 'Present = keyframe the mask shape at this time.' },
+        inverted: { type: 'boolean' },
+        feather: { type: 'number' },
+        expansion: { type: 'number' },
+      },
+      required: ['command', 'layerId'],
+    },
+  },
+  {
     name: 'ae_diagnostics',
     description:
       'What is wrong with this project: missing footage, substituted or missing fonts, and broken ' +
@@ -294,7 +337,19 @@ function createToolRegistry(callHost) {
   const handlers = {
     ae_query: (a) => host(a.command, a).then(textContent),
     ae_set: (a) => host(a.command === 'expressions' ? 'setExpression' : 'set', a).then(textContent),
-    ae_animate: (a) => host('keyframes', a).then(textContent),
+    ae_animate: async (a) => {
+      const result = await host('keyframes', a);
+      // Easing is a second host call by design: it has to run after the keys
+      // exist, and doing it here keeps that ordering out of the caller's hands.
+      if (a.ease) {
+        result.ease = await host('setEase', {
+          layerId: a.layerId, path: a.path,
+          influence: a.ease.influence, mode: a.ease.mode, keyIndices: a.ease.keyIndices,
+        });
+      }
+      return textContent(result);
+    },
+    ae_masks: (a) => host('masks', a).then(textContent),
     ae_layers: (a) => host('layers', a).then(textContent),
     ae_effects: (a) => host('effects', a).then(textContent),
     ae_project: (a) => host('project', a).then(textContent),

@@ -182,6 +182,57 @@
             return pk.count;
         });
 
+        record("masks add and setRect crop a layer", function () {
+            var solidId = call("layers", { compId: scratchCompId, command: "createSolid",
+                                           color: [1,1,1], name: "maskme", width: 400, height: 100 }).id;
+            call("masks", { layerId: solidId, command: "add", name: "reveal" });
+            var r = call("masks", { layerId: solidId, command: "setRect",
+                                    left: 0, top: 0, width: 120, height: 100 });
+            var list = call("masks", { layerId: solidId, command: "list" });
+            if (!list.count) { throw new Error("mask was not created"); }
+            return { masks: list.count, rect: r.rect };
+        });
+
+        record("mask shape keyframes when given a time", function () {
+            var solidId = call("layers", { compId: scratchCompId, command: "createSolid",
+                                           color: [1,1,1], name: "maskanim", width: 400, height: 100 }).id;
+            call("masks", { layerId: solidId, command: "add" });
+            call("masks", { layerId: solidId, command: "setRect", width: 100, height: 100, time: 0 });
+            var r = call("masks", { layerId: solidId, command: "setRect", width: 400, height: 100, time: 1 });
+            if (r.numKeys !== 2) { throw new Error("expected 2 mask keys, got " + r.numKeys); }
+            return r.numKeys;
+        });
+
+        record("setEase applies temporal easing sized to the property", function () {
+            call("keyframes", { layerId: textLayerId,
+                path: ["ADBE Transform Group", "ADBE Position"],
+                add: [{ time: 0, value: [100, 100] }, { time: 1, value: [200, 200] }] });
+            var e = call("setEase", { layerId: textLayerId,
+                path: ["ADBE Transform Group", "ADBE Position"],
+                influence: 70, mode: "both" });
+            // Position is TwoD_SPATIAL, and AE wants ONE temporal ease for a
+            // spatial property regardless of its dimensionality.
+            if (!e.spatial) { throw new Error("position should be spatial"); }
+            if (e.dimensions !== 1) { throw new Error("spatial ease must be 1D, got " + e.dimensions); }
+            if (e.keysEased < 2) { throw new Error("eased only " + e.keysEased + " keys"); }
+            return { dims: e.dimensions, spatial: e.spatial, eased: e.keysEased };
+        });
+
+        record("setEase handles a non-spatial multi-dimensional property", function () {
+            call("keyframes", { layerId: textLayerId,
+                path: ["ADBE Transform Group", "ADBE Scale"],
+                add: [{ time: 0, value: [50, 50, 100] }, { time: 1, value: [100, 100, 100] }] });
+            var e = call("setEase", { layerId: textLayerId,
+                path: ["ADBE Transform Group", "ADBE Scale"], influence: 60 });
+            if (e.dimensions !== 3) { throw new Error("scale should be 3D, got " + e.dimensions); }
+            return e.dimensions;
+        });
+
+        record("setEase rejects an out-of-range influence", function () {
+            return expectFail("setEase", { layerId: textLayerId,
+                path: ["ADBE Transform Group", "ADBE Opacity"], influence: 500 }, "op_failed");
+        });
+
         record("capture returns a real png", function () {
             var c = call("capture", { compId: scratchCompId, time: 0.5,
                                       fileName: "suite_frame.png", longEdge: 256 });

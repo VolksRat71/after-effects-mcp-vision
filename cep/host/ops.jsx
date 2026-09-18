@@ -50,6 +50,7 @@ __mcp_ops.listOps = function () {
  */
 var __mcp_mutating = {
     set: true, setExpression: true, keyframes: true,
+    masks: true, setEase: true,
     layers: true, effects: true, project: true,
     capture: true, captureSequence: true, captureIsolated: true
 };
