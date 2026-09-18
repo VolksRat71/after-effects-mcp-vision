@@ -14,6 +14,11 @@
  */
 
 #include "./json-polyfill.jsx"
+#include "./util.jsx"
+#include "./ops-query.jsx"
+#include "./ops-mutate.jsx"
+#include "./ops-capture.jsx"
+#include "./ops-diagnostics.jsx"
 #include "./ops.jsx"
 
 function __mcp_serialize(obj) {
@@ -26,11 +31,6 @@ function __mcp_serialize(obj) {
         s += '"}}';
         return s;
     }
-}
-
-// e.line is not always present and touching it on some hosts throws.
-function __mcp_line(e) {
-    try { return (e && e.line !== undefined) ? e.line : null; } catch (x) { return null; }
 }
 
 function __mcp_err(code, message, line) {
