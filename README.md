@@ -1,699 +1,246 @@
 <p align="center">
-  <img src="doc/readme-img/after-effects-mcp-vision-transparent.png" alt="After Effects MCP Vision" width="200">
+  <img src="doc/readme-img/after-effects-mcp-vision-transparent.png" width="420" alt="After Effects MCP Vision">
 </p>
-
-<h1 align="center">After Effects MCP Vision</h1>
-<p align="center">AI Visual Understanding for Adobe After Effects</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/node-%3E=16.x-brightgreen.svg" alt="Node.js">
-  <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue" alt="Platform">
-  <img src="https://img.shields.io/badge/version-2.0.0-blue" alt="Version">
-  <img src="https://img.shields.io/badge/After%20Effects-2020%2B-purple" alt="After Effects">
-  <img src="https://img.shields.io/badge/AI-Visual%20Understanding-green" alt="Vision">
+  An MCP server that lets an AI agent <strong>build</strong> and <strong>see</strong> inside a live Adobe After Effects session.
 </p>
-
-**Give your AI assistant eyes into After Effects.** This MCP server enables LLMs to visually understand and debug your compositions by rendering frames on-demand, analyzing animations frame-by-frame, and providing visual feedback for every change.
-
-> 🎯 **Key Innovation:** Your AI can now SEE what it's creating - rendering frames to understand compositions, debug animations, and verify changes visually.
->
-> 🔗 **Originally forked from:** [after-effects-mcp](https://github.com/Dakkshin/after-effects-mcp) by Dakkshin - now enhanced with visual understanding, modular architecture, and 30+ tools.
-
-## 👁️ Why Visual Understanding Matters
-
-### 🎯 Visual Debugging for AI
-- **See Compositions in Real-Time** - AI renders frames to understand what's happening visually
-- **Analyze Animations Frame-by-Frame** - Sample multiple frames to understand motion and timing
-- **Identify Visual Issues** - AI can spot rotation reversals, timing problems, and visual glitches
-- **Verify Changes Instantly** - Every modification can be visually confirmed before proceeding
-
-### 📸 Visual Capabilities
-- **render-frame-debug** - Let AI see a single frame instantly
-- **render-frames-sampled-debug** - AI analyzes animation sequences
-- **Automatic TIFF→PNG conversion** - Seamless image processing
-- **Smart cleanup** - Debug frames auto-delete after 10 minutes
-- **Separate export tools** - Permanent renders for user deliverables
-
-### 🏗️ Enhanced Architecture
-- **30+ Tools** - Complete After Effects automation suite
-- **Automatic Batch Processing** - Rapid commands batch together automatically (500ms window)
-- **Modular Design** - TypeScript and ExtendScript modules
-- **Cross-Platform** - Windows and macOS support
-- **Real-time Communication** - Bidirectional MCP bridge
-- **Custom Script Execution** - Run any ExtendScript code
-
-<details>
-<summary><strong>🎥 Watch Visual Debugging in Action (Video Demo)</strong></summary>
-
-<br>
-
-https://github.com/user-attachments/assets/6b73504c-d441-4b72-a79d-9c5a9730dacd
-
-**This demonstration shows:**
-- AI rendering frames to understand compositions visually
-- Real-time visual verification of text and animations
-- Frame-by-frame animation analysis and debugging
-- Automatic TIFF to PNG conversion in action
-- The complete visual feedback loop between AI and After Effects
-
-</details>
-
-📖 **[See it in action: Real AI Visual Debugging Session](doc/TEST_SESSION_VISUAL_DEBUGGING.md)**
-
-## 🎯 Key Features
-
-### 👁️ Visual Understanding
-- **AI Can See** - Render any frame for AI visual analysis
-- **Animation Debugging** - Sample frames to understand motion
-- **Visual Verification** - Confirm every change visually
-- **Problem Detection** - AI identifies timing and animation issues
-
-### 🎨 Complete Creative Control
-- **Composition Management** - Create and manage compositions
-- **Layer Operations** - Text, shapes, solids, and more
-- **Animation System** - Keyframes, expressions, and templates
-- **Asset Import** - Bring in images and videos dynamically
-- **Effect Library** - Apply and configure effects
-- **Custom Scripting** - Execute any ExtendScript code
-
-### Detailed Capabilities
-
-<details>
-<summary><strong>🎥 Composition Management</strong></summary>
-
-- Create compositions with custom settings (size, frame rate, duration, background color)
-- List all compositions in a project with details
-- Get project information including frame rate, dimensions, and duration
-- Get composition by index - properly finds compositions by position
-</details>
-
-<details>
-<summary><strong>🧱 Layer Creation & Management</strong></summary>
-
-- Create text layers with customizable properties (font, size, color, position)
-- Create shape layers (rectangle, ellipse, polygon, star) with colors and strokes
-- Create solid/adjustment layers for backgrounds and effects
-- Modify layer properties like position, scale, rotation, opacity, and timing
-- Get layer properties with keyframe data and applied effects
-</details>
-
-<details>
-<summary><strong>🌀 Animation</strong></summary>
-
-- Set keyframes for any layer property (Position, Scale, Rotation, Opacity, etc.)
-- Bulk keyframe operations - set multiple keyframes at once
-- Copy animations between layers with time offsets
-- Apply expressions to layer properties for dynamic animations
-- Animation templates - 12 pre-built animations (bounce, slide, fade, zoom, shake, etc.)
-</details>
-
-<details>
-<summary><strong>📂 Asset Management</strong></summary>
-
-- Import assets - import images/videos from disk paths
-- Replace footage - swap layer source files dynamically
-- Auto-add to composition with position and scale options
-</details>
-
-<details>
-<summary><strong>🛠️ Advanced Features</strong></summary>
-
-- Custom script execution - run ExtendScript code directly
-- Command history tracking - logs all operations for debugging/replay
-- Effect templates - pre-configured effects (blur, glow, cinematic look)
-- Real-time logging - Chokidar file watcher tracks all command/result flow
-- Modular build system - processes `#include` directives and injects paths at build time
-</details>
-
-## Table of Contents
-- [Key Features](#-key-features)
-- [Quickstart](#-quickstart)
-- [Setup Instructions](#️-setup-instructions)
-- [Available Tools](#-available-tools)
-- [Usage Examples](#-usage-examples)
-- [Architecture](#-architecture)
-- [Troubleshooting](#-troubleshooting)
-- [For Developers](#-for-developers)
-- [Testing & Quality](#-testing--quality)
-- [Recent Improvements](#-recent-improvements)
-- [License](#-license)
-
-## ⚡ Quickstart
-
-**Get started in 5 minutes:**
-
-```bash
-# Clone and install dependencies
-git clone https://github.com/VolksRat71/after-effects-mcp-enhanced.git
-cd after-effects-mcp-enhanced
-npm install
-
-# Build the project
-npm run build
-
-# Install bridge to After Effects
-# macOS (requires password):
-sudo npm run bridge-install
-
-# Windows (will prompt for UAC):
-npm run bridge-install
-```
-
-**Configure your MCP client** (Claude Desktop, Cursor, etc.):
-
-```json
-{
-  "mcpServers": {
-    "after-effects-vision": {
-      "command": "node",
-      "args": ["/absolute/path/to/after-effects-mcp-enhanced/build/server/index.js"]
-    }
-  }
-}
-```
-
-**Enable scripting in After Effects:**
-1. Open After Effects
-2. Go to Preferences > Scripting & Expressions
-   *(Edit > Preferences on Windows, After Effects > Settings on macOS)*
-3. Enable "Allow Scripts to Write Files and Access Network"
-4. Restart After Effects
-5. Open Window > mcp-bridge-auto.jsx
-
-**Done!** Start using MCP commands from your AI assistant.
-
-## ⚙️ Setup Instructions
-
-### 🛠 Prerequisites
-
-**System Requirements:**
-- **Operating Systems**: Windows 10/11 or macOS 10.14 (Mojave) or later
-- **Adobe After Effects**: Version 2020 or later (tested with 2021, 2023, 2025)
-- **Node.js**: v16 or later (v18+ recommended for best compatibility)
-- **Package Manager**: npm or yarn
-
-**Platform-Specific:**
-- **Windows**: Administrator privileges required for installation
-- **macOS**: After Effects must have been run at least once; may need Full Disk Access in System Settings
-
-### 📥 Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/VolksRat71/after-effects-mcp-enhanced.git
-   cd after-effects-mcp-enhanced
-   ```
-
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Build the project**
-   ```bash
-   npm run build
-   ```
-
-4. **Install the After Effects bridge panel**
-
-   **For macOS:**
-   ```bash
-   sudo npm run bridge-install
-   ```
-   - You will be prompted for your administrator password
-   - The installer uses `sudo cp` to copy files to `/Applications/Adobe After Effects [version]/Scripts/ScriptUI Panels/`
-   - Installs `mcp-bridge-auto.jsx` to the ScriptUI Panels folder
-
-   **For Windows:**
-   ```bash
-   npm run bridge-install
-   ```
-   - A User Account Control (UAC) prompt will appear requesting administrator privileges
-   - The installer uses PowerShell with elevated privileges to copy files
-   - If UAC is cancelled, it will attempt a regular copy (may fail without admin rights)
-   - Installs to `C:\Program Files\Adobe\Adobe After Effects [version]\Support Files\Scripts\ScriptUI Panels\`
-
-### 🔧 Configure Your MCP Client
-
-Add to your MCP client configuration (e.g., Claude Desktop, Cursor):
-
-**Windows:**
-```json
-{
-  "mcpServers": {
-    "after-effects-vision": {
-      "command": "node",
-      "args": ["C:\\path\\to\\after-effects-mcp-enhanced\\build\\server\\index.js"]
-    }
-  }
-}
-```
-
-**macOS:**
-```json
-{
-  "mcpServers": {
-    "after-effects-vision": {
-      "command": "node",
-      "args": ["/path/to/after-effects-mcp-enhanced/build/server/index.js"]
-    }
-  }
-}
-```
-
-### ▶️ Running the Server
-
-1. **Configure After Effects**
-   - Open After Effects
-   - **Windows**: Edit > Preferences > Scripting & Expressions
-   - **macOS**: After Effects > Settings > Scripting & Expressions
-   - Enable "Allow Scripts to Write Files and Access Network"
-   - Restart After Effects
-
-2. **Open the MCP Bridge Panel**
-   - In After Effects: Window > mcp-bridge-auto.jsx
-   - Ensure "Auto-run commands" is checked
-   - The panel will poll for commands every 500ms
-
-3. **Start using MCP commands**
-   - The server is now ready to receive commands from your MCP client
-
-## 🛠 Available Tools
-
-### Composition Management
-| Tool | Description |
-|------|-------------|
-| `create-composition` | Create a new composition with custom settings |
-| `list-compositions` | List all compositions in the project |
-| `get-project-info` | Get project information |
-
-### Layer Creation & Management
-| Tool | Description |
-|------|-------------|
-| `create-text-layer` | Create a new text layer |
-| `create-shape-layer` | Create shape layers (rectangle, ellipse, etc.) |
-| `create-solid-layer` | Create solid or adjustment layers |
-| `set-layer-properties` | Modify layer properties |
-| `get-layer-properties` | Get layer info including keyframes |
-
-### Animation Tools
-| Tool | Description |
-|------|-------------|
-| `set-layer-keyframe` | Set a keyframe for a layer property |
-| `set-multiple-keyframes` | Set multiple keyframes at once |
-| `copy-animation` | Copy all keyframes between layers |
-| `set-layer-expression` | Apply expressions to properties |
-| `apply-animation-template` | Apply pre-built animations |
-
-### Asset Management
-| Tool | Description |
-|------|-------------|
-| `import-assets` | Import images/videos from disk |
-| `replace-footage` | Replace layer source footage |
-
-### Effects
-| Tool | Description |
-|------|-------------|
-| `apply-effect` | Apply an effect to a layer |
-| `apply-effect-template` | Apply pre-configured effect templates |
-
-### Render Tools (Visual Debugging & Export)
-| Tool | Description |
-|------|-------------|
-| `render-frame-debug` | Render single frame for AI visual understanding (auto-cleanup) |
-| `render-frame-export` | Render single frame for permanent user export |
-| `render-frames-sampled-debug` | Render multiple frames for AI animation analysis (auto-cleanup) |
-| `render-frames-sampled-export` | Render frame sequence for permanent user export |
-
-**Note:** After Effects renders to TIFF format initially, which are automatically converted to PNG by the built-in TIFF converter service. Debug renders (`build/temp/`) are cleaned up after 10 minutes. Export renders (`build/dist/`) are permanent.
-
-### Utility
-| Tool | Description |
-|------|-------------|
-| `run-custom-script` | Execute custom ExtendScript code |
-| `get-command-history` | Query command history |
-| `export-history-as-script` | Export history as ExtendScript |
-| `get-help` | Get detailed help information |
-| `get-results` | Retrieve results from After Effects |
-
-## 💡 Usage Examples
-
-### Creating a Composition
-```javascript
-// Create a 1080p composition
-mcp__after-effects-mcp__create-composition({
-  name: "My Animation",
-  width: 1920,
-  height: 1080,
-  frameRate: 30,
-  duration: 10,
-  backgroundColor: { r: 0, g: 0, b: 0 }
-})
-```
-
-### Importing and Animating Assets
-```javascript
-// Import images
-mcp__after-effects-mcp__import-assets({
-  files: ["/path/to/image1.jpg", "/path/to/image2.jpg"],
-  addToComp: true,
-  compIndex: 1,
-  position: [960, 540],
-  scale: [50, 50]
-})
-
-// Apply bounce animation
-mcp__after-effects-mcp__apply-animation-template({
-  template: "bounce",
-  compIndex: 1,
-  layerIndex: 1,
-  duration: 1.5
-})
-```
-
-### Setting Keyframes
-```javascript
-// Animate position over time
-mcp__after-effects-mcp__set-layer-keyframe({
-  compIndex: 1,
-  layerIndex: 1,
-  propertyName: "Position",
-  timeInSeconds: 0,
-  value: [100, 540]
-})
-
-mcp__after-effects-mcp__set-layer-keyframe({
-  compIndex: 1,
-  layerIndex: 1,
-  propertyName: "Position",
-  timeInSeconds: 2,
-  value: [1820, 540]
-})
-```
-
-### Animation Templates Available
-- `fade-in` / `fade-out` - Opacity animations
-- `slide-left` / `slide-right` / `slide-up` / `slide-down` - Position animations
-- `bounce` - Bouncing motion with scale
-- `spin` - 360-degree rotation
-- `zoom-in` / `zoom-out` - Scale animations
-- `shake` - Random position shake
-- `slide-and-fall` - Slide in and fall with rotation
-
-### Rendering Frames for Visual Debugging (AI/LLM)
-```javascript
-// Render a single frame for AI to "see" what's happening
-mcp__after-effects-mcp__render-frame-debug({
-  comp: "Main Comp",
-  time: 2.5,  // Render at 2.5 seconds
-  format: "png"
-})
-// Returns: { outputPath: "build/temp/debug_frame_*.png", ... }
-// Auto-cleanup after 1 hour
-
-// Sample multiple frames to understand animation
-mcp__after-effects-mcp__render-frames-sampled-debug({
-  comp: "Main Comp",
-  startTime: 0,
-  endTime: 3,
-  sampleCount: 5,  // Get 5 evenly-spaced frames
-  sessionName: "bounce_analysis"
-})
-// Returns: { sessionPath: "build/temp/bounce_analysis/", frames: [...] }
-// Auto-cleanup after 1 hour
-```
-
-### Rendering Frames for User Export
-```javascript
-// Export a single frame for user
-mcp__after-effects-mcp__render-frame-export({
-  comp: "Main Comp",
-  frame: 60,  // Frame 60
-  outputFile: "hero_shot.png"
-})
-// Returns: { outputPath: "build/dist/hero_shot.png", ... }
-// Permanent file - no auto-cleanup
-
-// Export animation sequence for user
-mcp__after-effects-mcp__render-frames-sampled-export({
-  comp: "Main Comp",
-  startTime: 0,
-  endTime: 2,
-  sampleFps: 15,  // Sample at 15 FPS
-  sessionName: "animation_v1",
-  outputPrefix: "frame"
-})
-// Returns: { sessionPath: "build/dist/animation_v1/", frames: [...] }
-// Permanent files - no auto-cleanup
-```
-
-## 🔍 Troubleshooting
-
-### Common Issues
-
-**"File does not exist" when importing**
-- Ensure the file path is absolute, not relative
-- Check file extensions match exactly (`.jpg` vs `.jpeg`)
-
-**Permission denied errors**
-- **Windows**: Run installation as administrator
-- **macOS**: Grant After Effects full disk access in System Settings (see [Security & Permissions](#-security--permissions) below)
-
-**Scripts not appearing in Window menu**
-- Restart After Effects after installation
-- Verify script installation in Scripts/ScriptUI Panels folder
-
-**MCP not communicating with After Effects**
-- Check "Auto-run commands" is enabled in the panel
-- Ensure "Allow Scripts to Write Files" is enabled in preferences
-- Verify the MCP server is running (check with `/mcp` in your client)
-
-### File Locations
-
-**Communication files:**
-- Commands: `build/temp/ae_command.json`
-- Results: `build/temp/ae_mcp_result.json`
-- History: `build/temp/ae_command_history.json`
-
-**Scripts:**
-- Bridge panel: `[After Effects]/Scripts/ScriptUI Panels/mcp-bridge-auto.jsx`
-- Temp scripts: `build/temp/*.jsx` (auto-cleaned)
-
-### Security & Permissions
-
-**Why does this project need elevated permissions?**
-
-This MCP server requires certain system permissions to function properly:
-
-**During Installation:**
-- **macOS**: Requires `sudo` to copy the bridge script to `/Applications/Adobe After Effects [version]/Scripts/ScriptUI Panels/`
-  - This is a protected system directory that requires administrator privileges
-  - The installer uses `sudo cp` to place the bridge panel where After Effects can load it
-
-- **Windows**: Requires administrator privileges (UAC prompt) to copy to `C:\Program Files\Adobe\`
-  - Uses PowerShell with elevated privileges to write to protected directories
-
-**During Runtime:**
-- **File System Access**: The bridge panel needs to:
-  - Read command files from `build/temp/ae_command.json`
-  - Write result files to `build/temp/ae_mcp_result.json`
-  - Access these files for bidirectional communication between MCP and After Effects
-
-- **After Effects Scripting Permission**: Must enable "Allow Scripts to Write Files and Access Network" in AE preferences
-  - Required for the bridge panel to read/write communication files
-  - This is a standard After Effects security setting for any script that performs file I/O
-
-**macOS Full Disk Access (if needed):**
-- If you see permission errors when the bridge runs, grant After Effects "Full Disk Access" in:
-  - System Settings > Privacy & Security > Full Disk Access
-  - Add Adobe After Effects to the allowed apps list
-- This allows After Effects to access the temp files in your project directory
-
-**What data is accessed?**
-- Only files within the project directory (`build/temp/`)
-- No personal data, browser history, or system files are accessed
-- All file operations are limited to After Effects project data and MCP communication files
-
-## 🏗 Architecture
-
-### Modular Structure
-
-This project uses a fully modularized architecture for both TypeScript and ExtendScript:
-
-**TypeScript (Server)**:
-```
-src/
-├── server/
-│   ├── index.ts          # Main server entry point
-│   ├── config.ts         # Server configuration
-│   └── services.ts       # Service initialization
-├── tools/                # Organized by category
-│   ├── composition/      # Composition tools
-│   ├── layer/            # Layer tools
-│   ├── animation/        # Animation tools
-│   ├── effects/          # Effect tools
-│   ├── media/            # Media import/replace
-│   ├── utility/          # Custom scripts, history
-│   └── index.ts          # Tool registration
-├── installer/            # Bridge installation
-└── dist/                 # ExtendScript source
-```
-
-**ExtendScript (JSX)**:
-```
-src/dist/
-├── mcp-bridge-auto.jsx   # Master template with #include directives
-└── modules/
-    ├── base/             # Core functionality
-    ├── composition/      # Composition operations
-    ├── layer/            # Layer creation/modification
-    ├── animation/        # Animation operations
-    ├── effects/          # Effect application
-    └── utility/          # Custom script execution
-```
-
-### Build System
-
-The build process:
-1. **TypeScript compilation** - `tsc` compiles to `build/server/`
-2. **JSX processing** - `build-jsx.js` processes `#include` directives:
-   - Resolves all includes recursively
-   - Injects `{{MCP_TEMP_PATH}}` with actual build path
-   - Outputs to `build/dist/mcp-bridge-auto.jsx`
-3. **Bridge installation** - Copies built JSX to After Effects Scripts folder
-
-### Real-time Logging
-
-Chokidar file watcher monitors command/result files:
-- **Cyan**: Section headers
-- **Blue**: Process steps
-- **Green**: Success messages
-- **Yellow**: Running status
-- **Red**: Errors
-- **Magenta**: Dispatched commands
-
-### Automatic TIFF to PNG Conversion
-
-The server includes a built-in TIFF converter service that:
-- **Watches render directories** - Monitors `build/temp/` and `build/dist/` for new TIFF files
-- **File stability checks** - Waits for After Effects to finish writing before converting (prevents corruption)
-- **Auto-conversion** - Converts TIFF to PNG format transparently, deleting original TIFFs
-- **Startup conversion** - Processes any existing TIFF files when server starts
-- **Recursive support** - Handles files in subdirectories (e.g., session folders)
-
-This is necessary because After Effects renders to TIFF format by default when using the render queue with certain templates. The converter ensures all output is in web-friendly PNG format.
-
-## 👨‍💻 For Developers
-
-### 🧩 Project Structure
-
-```
-after-effects-mcp-enhanced/
-├── src/
-│   ├── server/                  # Server implementation
-│   │   ├── index.ts             # Main entry with file watcher
-│   │   ├── config.ts            # Path configuration
-│   │   └── services.ts          # Service initialization
-│   ├── tools/                   # Tool implementations (by category)
-│   ├── installer/               # Bridge installation logic
-│   ├── dist/                    # ExtendScript source files
-│   │   ├── mcp-bridge-auto.jsx  # Master template
-│   │   └── modules/             # JSX modules
-│   └── utils/                   # Utilities
-├── scripts/
-│   ├── build-jsx.js             # JSX build processor
-│   └── bridge-install.js        # Installation runner
-├── build/
-│   ├── server/                  # Compiled TypeScript
-│   ├── dist/                    # Built JSX files
-│   └── temp/                    # Communication files
-└── package.json
-```
-
-### 📦 Building from Source
-
-```bash
-# Install dependencies
-npm install
-
-# Build TypeScript and JSX
-npm run build
-
-# Install bridge to After Effects
-npm run bridge-install
-
-# Start the server
-npm start
-```
-
-### 🧪 Testing & Quality
-
-**Manual Test Coverage**: 100% (20/20 tools verified working in After Effects)
-
-All tools have been manually tested with After Effects running. The build system validates:
-- TypeScript compilation and type safety
-- JSX build system (`#include` processing)
-- Tool registration and schema validation
-- Cross-platform path resolution
-
-**Testing Results** (with After Effects):
-- All composition, layer, animation, effect, and media tools tested
-- Command history and custom script execution verified
-- Real-time logging system operational
-- Average command execution time: 6ms
-
-**Known Limitations**:
-- Watcher may miss intermediate "running" states due to fast execution (<100ms)
-- Commands complete faster than file watcher stability threshold (100ms)
-
-### 🤝 Contributing
-
-Contributions are welcome! This project follows a feature-branch workflow:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Tested With
-
-**Operating Systems:**
-- macOS Sonoma (14.x)
-- Windows 10/11
-
-**After Effects Versions:**
-- Adobe After Effects 2025 (primary test platform)
-- Compatible with After Effects 2020, 2021, 2022, 2023, 2024
-
-**Runtime:**
-- Node.js v18+ (all 20 MCP tools verified working)
-
-**Note:** While the software is compatible with After Effects 2020+, installation paths and UI locations may vary slightly between versions.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- Original project by [Dakkshin](https://github.com/Dakkshin/after-effects-mcp)
-- Built for the [Model Context Protocol](https://www.anthropic.com/news/model-context-protocol) ecosystem
-- Tested with Claude Code and Cursor
-- Thanks to the After Effects scripting community
-
-## 📬 Contact & Support
-
-**Found a bug or have a feature request?**
-- Open an issue on [GitHub Issues](https://github.com/VolksRat71/after-effects-mcp-enhanced/issues)
-- Check the [troubleshooting guide](#-troubleshooting) first
-
-**Want to contribute?**
-- Fork the repository and submit a pull request
-- See [Contributing](#-contributing) for guidelines
 
 ---
 
-**Ready to animate?** Start creating with AI-powered After Effects automation! 🎬✨
-F(#
+## What this is
+
+Most tool integrations let a model change things it cannot look at. It edits an
+object tree, gets back "ok", and has no idea whether the result is right.
+
+This one closes the loop. An agent can inspect the project, change it, **render
+a frame and actually look at the pixels**, then correct itself. As far as I can
+tell no other After Effects MCP ships a vision primitive — the one other public
+CEP-based Adobe MCP has `get_document_image()` for Photoshop and Premiere, and
+nothing for AE.
+
+Requires **After Effects 22.0 or later**, macOS or Windows.
+
+## The tools
+
+Eight verb-dispatching tools rather than one tool per operation. Descriptions
+carry workflow guidance and state their token cost, because walk depth and image
+size are the two ways an agent burns a context window in here.
+
+| Tool | What it does |
+|---|---|
+| `ae_query` | `sessionInfo`, `tree`, `find`, `propertyKeys`, `propertyValues`, `selection` |
+| `ae_set` | Batched property and expression writes |
+| `ae_animate` | Add / remove / read keyframes |
+| `ae_layers` | Create, delete, duplicate, rename, reorder, reparent, lock, solo |
+| `ae_effects` | List available, apply, remove, inspect parameters |
+| `ae_project` | Create comps, import footage, add to comp, save |
+| `ae_capture` | **Vision:** one frame, a contact sheet, or an isolated layer |
+| `ae_diagnostics` | Missing footage, font substitutions, broken expressions |
+
+### Seeing
+
+`ae_capture` is the point of the project.
+
+- **`frame`** — one still. Defaults to a 512px long edge, which is plenty to
+  judge layout, composition, alignment and colour.
+- **`sequence`** — N frames across a time range, composited into **one labelled
+  contact sheet**. Motion is exactly what a single still cannot show, and one
+  sheet costs a fraction of the context that N separate images would.
+- **`isolated`** — solos a single layer and captures it alone. This is the tool
+  for *"why is this not visible"*: it separates "drawn, but hidden behind
+  something" from "not drawn at all", which is near-impossible to work out from
+  the object tree.
+
+Captures composite onto mid grey, so a transparent region reads as transparent
+instead of being mistaken for a black or white fill.
+
+### Addressing
+
+Everything is addressed by **stable ids** — `Item.id` and `Layer.id`, which
+survive reordering and saving — and properties by **matchName path**:
+
+```json
+{ "layerId": 42, "path": ["ADBE Transform Group", "ADBE Position"], "value": [320, 180] }
+```
+
+`matchName` is stable across After Effects versions and independent of UI
+language. This is what makes effects, masks, text animators, shape paths and
+layer styles reachable at all, and it is why this works on a localized install.
+
+Writes are batch-shaped and report per-item outcomes:
+
+```json
+{ "appliedCount": 1,
+  "errors": [ { "index": 1, "code": "unknown_path", "message": "..." },
+              { "index": 2, "code": "unknown_id",   "message": "..." } ] }
+```
+
+One bad path does not discard the rest of the batch. Every mutating call runs
+inside an undo group, so an agent's whole batch is a single Cmd-Z.
+
+## Installing
+
+### From a release
+
+1. Download the `.zxp` from [Releases](../../releases).
+2. Drag it onto [ZXPInstaller](https://zxpinstaller.com/).
+3. Restart After Effects.
+4. Open **Window > Extensions > AE MCP Vision** and copy the config it shows.
+
+No admin rights needed — CEP extensions install per-user.
+
+### For development
+
+```bash
+git clone https://github.com/VolksRat71/after-effects-mcp-vision.git
+cd after-effects-mcp-vision
+npm run install:dev     # symlinks cep/ and enables PlayerDebugMode
+```
+
+Restart After Effects. The symlink means edits are live — reload the panel
+instead of reinstalling. No signing certificate is involved in local
+development; that is a release concern only.
+
+### Connecting a client
+
+The panel shows a ready-made config including a **per-launch bearer token**:
+
+```json
+{
+  "mcpServers": {
+    "ae-vision": {
+      "type": "http",
+      "url": "http://127.0.0.1:8791/mcp",
+      "headers": { "Authorization": "Bearer <token>" }
+    }
+  }
+}
+```
+
+The token is regenerated every time the server starts, so re-copy it after an
+After Effects restart. Set `AE_MCP_PORT` to move the port.
+
+## How it works
+
+```
+MCP client  --HTTP-->  Node server        (inside the CEP extension)
+                            |
+                            |  CSInterface.evalScript
+                            v
+                       ExtendScript host  (inside After Effects)
+                            |
+                            v
+                       app.project
+```
+
+The server runs **inside** After Effects, in a headless CEP extension. That is
+the same shape as the Rive and Obsidian MCP servers — the plugin *is* the
+server. After Effects must be running; the status panel does not need to be
+open.
+
+A few decisions worth explaining, since they all look odd until you know why:
+
+**Why CEP and not `aerender`.** `aerender` is a render-queue executor. It can
+run ExtendScript through an undocumented inherited `-r` flag, but every call is
+a cold boot of After Effects, and this project never opens or saves a `.aep` —
+it drives whatever the user has open. A cold boot per call turns the vision loop
+from seconds into minutes.
+
+**Why CEP and not AppleScript.** Measured against After Effects 26.0: `DoScript`
+returns `app.exitCode`, a single integer. It cannot carry structured data. The
+often-repeated claim that it returns the last evaluated expression comes from
+InDesign and does not hold here. `evalScript` genuinely returns a string, and
+that is the whole reason for CEP.
+
+**Why no `node_modules`.** CEP ships its own Node runtime of unknown vintage.
+MCP over HTTP is a small, stable JSON-RPC surface, so it is implemented
+directly. No SDK, no bundler, no runtime-version bet, and a 34 KB package.
+
+**Why not UXP.** After Effects 2026 does ship UXP, and accepts UXP plugins since
+22.5 — but the only After Effects-specific UXP plugin Adobe ships has a 97-byte
+stub for `main.js` and a placeholder panel id. It is UI hosting plus an internal
+script context, not a public scripting API like Photoshop's. ExtendScript
+remains After Effects' scripting surface. The host layer is kept isolated behind
+the transport so a future UXP port is not a third rewrite.
+
+## After Effects constraints worth knowing
+
+These were all verified the hard way against After Effects 26.0x67, and they are
+encoded in the code so they cannot bite twice.
+
+- **ExtendScript is ES3.** No native `JSON` — a polyfill is injected. No `const`,
+  `let`, arrow functions or template literals. `npm run lint` fails the build on
+  any of them, because the failure mode inside After Effects is a modal dialog,
+  not a stack trace.
+- **`return` is illegal at top level.** Every payload is wrapped in an IIFE.
+- **An error outside a `try` escapes `beginSuppressDialogs` and hangs After
+  Effects on a modal** until a human clicks OK. Suppression wraps serialization
+  and the reply too, not just the work.
+- **`evalScript` collapses every failure to the literal string
+  `"EvalScript error."`**, so the host serializes its own errors or they are
+  lost entirely.
+- **`saveFrameToPng` is undocumented and writes asynchronously** with no
+  callback — it returned in ~0 ms and the file landed after a single 25 ms poll.
+  Never trust the return; poll for the file.
+- **`comp.resolutionFactor` controls real output pixel dimensions**, so it is the
+  cost lever for cheap previews.
+- **2D layers expose `ADBE Rotate Z`, not `ADBE Rotation`.**
+- **Teardown is not automatic.** `comp.remove()` leaves orphaned solids and an
+  auto-created "Solids" folder behind, and an undo group does not revert itself.
+
+## Testing
+
+```bash
+npm run lint             # parse, ES3 dialect, require/#include/manifest resolution
+npm test                 # 35 unit tests, no After Effects needed
+npm run test:integration # 31 cases against a live After Effects
+```
+
+The integration suite builds a scratch comp, exercises every op against real
+After Effects APIs, and tears it down. It cannot run in CI — no hosted runner
+has After Effects — so it is the manual gate before tagging a release. It has
+already earned its keep, catching a reorder that used `moveBefore` in both
+directions, a bad layer id reported as `unknown_path`, and the `ADBE Rotate Z`
+naming.
+
+## Security
+
+The bearer token is the trust boundary. Anything holding it can drive After
+Effects as you — the same model every in-editor MCP server operates under.
+
+- Per-launch token, written `0600`, required on every request.
+- `Host` pinned to loopback, which defeats DNS rebinding.
+- Any request carrying an `Origin` is refused, which blocks browser CSRF.
+- `ae_capture` takes a bare filename matched against `[A-Za-z0-9._-]+\.png` and
+  resolved inside one app-owned directory. It previously took an arbitrary path,
+  which was an arbitrary file write — anything reaching the port could have
+  dropped a file into a Startup script folder, which After Effects auto-executes.
+- `ae_project save` requires a `.aep`/`.aepx` path and refuses to overwrite
+  without `overwrite: true`.
+
+`import` and `save` take absolute paths deliberately. Footage lives wherever you
+keep it; sandboxing those would break the tool rather than secure it.
+
+## Troubleshooting
+
+**Panel is empty or missing from Window > Extensions.** The extension is
+unsigned in development and needs `PlayerDebugMode`, which `npm run install:dev`
+sets. Restart After Effects after installing.
+
+**`host ping failed` in the panel.** `host.jsx` did not load or `__mcp_exec` is
+undefined — usually an ExtendScript syntax error. Run `npm run lint`.
+
+**`nothing listening on 8791`.** Another process holds the port. Set
+`AE_MCP_PORT` and reload the panel.
+
+**401 from the MCP client.** The token is regenerated on every server start.
+Re-copy it from the panel.
+
+**After Effects is frozen.** Something threw outside a guarded block and there
+is a modal dialog waiting behind the main window. Click OK, then file a bug —
+that is a real defect, not expected behaviour.
+
+## Licence
+
+MIT — see [LICENSE](LICENSE).

@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Check the tag matches package.json
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag $TAG does not match package.json version $PKG"
+            exit 1
+          fi
+
+      # Signing is optional so a fork without secrets still produces a usable
+      # artifact. An unsigned .zxp installs only with PlayerDebugMode enabled.
+      # The secrets context is not dependable inside a step-level `if`, so the
+      # secret is mapped to env first and the presence check reads that.
+      - name: Restore signing certificate
+        id: cert
+        env:
+          ZXP_CERT_B64: ${{ secrets.ZXP_CERT_B64 }}
+        run: |
+          if [ -n "$ZXP_CERT_B64" ]; then
+            echo "$ZXP_CERT_B64" | base64 -d > /tmp/cert.p12
+            echo "cert_path=/tmp/cert.p12" >> "$GITHUB_OUTPUT"
+            echo "signing certificate restored"
+          else
+            echo "cert_path=" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Unsigned build::No ZXP_CERT_B64 secret. The released .zxp will be unsigned and will install only where PlayerDebugMode is enabled."
+          fi
+
+      - name: Build package
+        env:
+          ZXP_CERT: ${{ steps.cert.outputs.cert_path }}
+          ZXP_CERT_PASS: ${{ secrets.ZXP_CERT_PASS }}
+        run: npm run package
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zxp
+          generate_release_notes: true
+          body: |
+            Install by dragging the `.zxp` onto [ZXPInstaller](https://zxpinstaller.com/),
+            then restart After Effects.
+
+            The MCP server starts with After Effects. Copy the config from the
+            **AE MCP Vision** panel (Window > Extensions) into your MCP client -
+            it includes a per-launch bearer token.
+
+            Requires After Effects 22.0 or later.
+
+      - name: Clean up certificate
+        if: always()
+        run: rm -f /tmp/cert.p12
