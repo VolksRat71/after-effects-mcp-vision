@@ -294,6 +294,118 @@
             return parsed.error.code;
         });
 
+        record("timing sets in/out, and startTime shifts them", function () {
+            var l = call("layers", { compId: scratchCompId, command: "createSolid",
+                                     color: [0,1,0], name: "timed", width: 50, height: 50 }).id;
+            var r = call("timing", { command: "setLayer", layerId: l,
+                                     startTime: 0.5, inPoint: 1, outPoint: 2 });
+            // startTime is applied first, so in/out land where the caller asked.
+            if (Math.abs(r.inPoint - 1) > 0.05) { throw new Error("inPoint drifted to " + r.inPoint); }
+            return { start: r.startTime, inP: r.inPoint, outP: r.outPoint };
+        });
+
+        record("timing edits comp settings after creation", function () {
+            var r = call("timing", { command: "setComp", compId: scratchCompId, frameRate: 24 });
+            if (r.frameRate !== 24) { throw new Error("frameRate is " + r.frameRate); }
+            call("timing", { command: "setComp", compId: scratchCompId, frameRate: 30 });
+            return 24;
+        });
+
+        record("timing adds comp and layer markers", function () {
+            var a = call("timing", { command: "addMarker", compId: scratchCompId, time: 1, comment: "beat" });
+            var b = call("timing", { command: "addMarker", layerId: textLayerId, time: 0.5, comment: "hit" });
+            return { comp: a.numMarkers, layer: b.numMarkers };
+        });
+
+        record("bounds measures rendered text", function () {
+            var b = call("bounds", { layerId: textLayerId, time: 0 });
+            if (!b.reliable) { throw new Error("text bounds unreliable"); }
+            if (b.layerSpace.width < 10) { throw new Error("implausible width " + b.layerSpace.width); }
+            return { w: Math.round(b.layerSpace.width), h: Math.round(b.layerSpace.height) };
+        });
+
+        record("shapes create a rect with animatable Size", function () {
+            var sh = call("shapes", { command: "create", compId: scratchCompId, kind: "rect",
+                                      name: "bar", width: 300, height: 80, roundness: 8,
+                                      fill: [0.2,0.6,1,1], stroke: [1,1,1,1], strokeWidth: 3 });
+            if (!sh.paths || !sh.paths.size) { throw new Error("no size path returned"); }
+            // The returned path must actually drive the property.
+            var w = call("set", { writes: [{ layerId: sh.id, path: sh.paths.size, value: [500, 80], time: 1 }] });
+            if (w.errors.length) { throw new Error(w.errors[0].message); }
+            return { id: sh.id, size: sh.paths.size.join(" > ") };
+        });
+
+        record("shapes support ellipse, star and freeform path", function () {
+            var e = call("shapes", { command: "create", compId: scratchCompId, kind: "ellipse", width: 120, height: 120 });
+            var st = call("shapes", { command: "create", compId: scratchCompId, kind: "star", points: 5, outerRadius: 80, innerRadius: 40 });
+            var pa = call("shapes", { command: "create", compId: scratchCompId, kind: "path",
+                                      vertices: [[0,0],[120,0],[60,90]] });
+            return { ellipse: !!e.paths.size, star: st.id > 0, path: !!pa.paths.path };
+        });
+
+        record("compose precomposes layers into a nested comp", function () {
+            var a = call("layers", { compId: scratchCompId, command: "createSolid", color: [1,0,0], name: "pa", width: 40, height: 40 }).id;
+            var b = call("layers", { compId: scratchCompId, command: "createSolid", color: [0,0,1], name: "pb", width: 40, height: 40 }).id;
+            var r = call("compose", { command: "precompose", compId: scratchCompId,
+                                      layerIds: [a, b], name: "__nested__" });
+            if (r.layersInside !== 2) { throw new Error("expected 2 layers inside, got " + r.layersInside); }
+            return { precompId: r.precompId, inside: r.layersInside };
+        });
+
+        record("compose sets a track matte without requiring adjacency", function () {
+            var m = call("layers", { compId: scratchCompId, command: "createSolid", color: [1,1,1], name: "matte", width: 80, height: 80 }).id;
+            var t = call("layers", { compId: scratchCompId, command: "createSolid", color: [1,0,1], name: "matted", width: 200, height: 200 }).id;
+            var r = call("compose", { command: "setTrackMatte", layerId: t, matteLayerId: m, type: "alpha" });
+            if (!r.hasTrackMatte) { throw new Error("matte did not attach"); }
+            var off = call("compose", { command: "setTrackMatte", layerId: t, matteLayerId: null });
+            return { attached: r.hasTrackMatte, removed: !off.hasTrackMatte };
+        });
+
+        record("compose sets blend mode and rejects a bad one", function () {
+            call("compose", { command: "setBlendMode", layerId: textLayerId, mode: "screen" });
+            call("compose", { command: "setBlendMode", layerId: textLayerId, mode: "normal" });
+            return expectFail("compose", { command: "setBlendMode", layerId: textLayerId, mode: "nope" }, "op_failed");
+        });
+
+        record("compose parents while keeping screen position", function () {
+            var n = call("layers", { compId: scratchCompId, command: "createNull" }).id;
+            var before = call("propertyValues", { layerId: textLayerId,
+                paths: [["ADBE Transform Group", "ADBE Position"]] }).values[0].value;
+            call("compose", { command: "parent", layerId: textLayerId, parentLayerId: n });
+            var after = call("propertyValues", { layerId: textLayerId,
+                paths: [["ADBE Transform Group", "ADBE Position"]] }).values[0].value;
+            call("compose", { command: "parent", layerId: textLayerId, parentLayerId: null });
+            return { before: before[0], after: after[0] };
+        });
+
+        record("hold keyframes freeze a value", function () {
+            var l = call("layers", { compId: scratchCompId, command: "createSolid", color: [1,1,0], name: "held", width: 40, height: 40 }).id;
+            var r = call("keyframes", { layerId: l, path: ["ADBE Transform Group", "ADBE Opacity"],
+                add: [{ time: 0, value: 100, hold: true }, { time: 1, value: 0 }] });
+            if (r.numKeys !== 2) { throw new Error("expected 2 keys"); }
+            return r.numKeys;
+        });
+
+        record("masks accept an arbitrary path and feather", function () {
+            var l = call("layers", { compId: scratchCompId, command: "createSolid", color: [0,1,1], name: "pathmask", width: 200, height: 200 }).id;
+            call("masks", { command: "add", layerId: l });
+            var p = call("masks", { command: "setPath", layerId: l, vertices: [[0,0],[200,0],[100,150]] });
+            var f = call("masks", { command: "setFeather", layerId: l, feather: 12 });
+            if (p.vertices !== 3) { throw new Error("got " + p.vertices + " vertices"); }
+            return { verts: p.vertices, feather: f.feather };
+        });
+
+        record("render lists this machine's output templates", function () {
+            var r = call("render", { command: "listTemplates", compId: scratchCompId });
+            if (!r.outputModules.length) { throw new Error("no output module templates"); }
+            return { om: r.outputModules.length, rs: r.renderSettings.length };
+        });
+
+        record("render refuses a path with no media extension", function () {
+            return expectFail("render", { compId: scratchCompId, command: "render",
+                                          outputPath: "/tmp/nope.txt" }, "op_failed");
+        });
+
         record("selection reads without throwing", function () { return call("selection").activeItemId; });
         record("diagnostics.problems runs", function () {
             var d = call("problems", { maxLayers: 50 });
@@ -309,7 +421,8 @@
         app.beginUndoGroup("mcp suite teardown");
         for (var i = app.project.numItems; i >= 1; i--) {
             var it = app.project.item(i);
-            if (it.name === "__mcp_test__" || it.name === "bg" || it.name === "Solids") { it.remove(); }
+            if (it.name === "__mcp_test__" || it.name === "bg" || it.name === "Solids" ||
+                it.name === "__nested__") { it.remove(); }
         }
         app.endUndoGroup();
     } catch (e) {

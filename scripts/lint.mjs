@@ -48,11 +48,22 @@ const ES3_BANNED = [
   [/(^|[^.\w])class\s+[A-Za-z_$]/m, 'class declaration'],
   [/\bJSON\.(parse|stringify)\b/, null], // allowed - we ship a polyfill
 ];
+// Strings and comments are prose, not code. "(mov, png, ...)" inside a message
+// is not a spread operator, and a require() mentioned in a comment is not a
+// dependency - flagging either is a false positive that trains people to
+// ignore the linter.
+function stripLiterals(line) {
+  return line
+    .replace(/\/\/.*$/, '')
+    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+    .replace(/'(?:[^'\\]|\\.)*'/g, "''");
+}
+
 for (const f of files.filter((f) => extname(f) === '.jsx')) {
   const src = readFileSync(f, 'utf8');
   const lines = src.split('\n');
   lines.forEach((line, i) => {
-    const code = line.replace(/\/\/.*$/, '');
+    const code = stripLiterals(line);
     if (/^\s*\*/.test(line) || /^\s*\/\*/.test(line)) return; // block comment body
     for (const [re, label] of ES3_BANNED) {
       if (!label) continue;

@@ -19,6 +19,7 @@
 #include "./ops-mutate.jsx"
 #include "./ops-capture.jsx"
 #include "./ops-diagnostics.jsx"
+#include "./ops-build.jsx"
 #include "./ops.jsx"
 
 function __mcp_serialize(obj) {

@@ -160,6 +160,12 @@ var __mcp_mutateOps = {
         for (var a = 0; a < add.length; a++) {
             try {
                 p.setValueAtTime(Number(add[a].time), __mcp_coerceForProperty(p, add[a].value));
+                // A hold key freezes the value until the next key: the right
+                // tool for cuts, on/off states and stepped motion.
+                if (add[a].hold) {
+                    var ki = p.nearestKeyIndex(Number(add[a].time));
+                    p.setInterpolationTypeAtKey(ki, KeyframeInterpolationType.HOLD, KeyframeInterpolationType.HOLD);
+                }
                 result.added++;
             } catch (e) {
                 result.errors.push({ index: a, code: "add_failed", message: String(e) });
@@ -256,7 +262,12 @@ var __mcp_mutateOps = {
             return __mcp_layerSummary(sh);
         }
         if (cmd === "createNull") {
-            var nl = comp.layers.addNull(args.duration ? Number(args.duration) : undefined);
+            // ExtendScript cannot take an explicit `undefined` for an optional
+            // argument - passing one throws "Unable to call addNull". The call
+            // has to be branched rather than the value defaulted.
+            var nl = (args.duration === undefined || args.duration === null)
+                ? comp.layers.addNull()
+                : comp.layers.addNull(Number(args.duration));
             if (args.name) { nl.name = String(args.name); }
             return __mcp_layerSummary(nl);
         }
@@ -399,6 +410,25 @@ var __mcp_mutateOps = {
                      numKeys: shapeProp.numKeys };
         }
 
+        if (cmd === "setPath") {
+            var tp = args.maskIndex ? parade.property(Number(args.maskIndex)) : parade.property(parade.numProperties);
+            if (!tp) { throw new Error("No mask to set - add one first"); }
+            if (!args.vertices || args.vertices.length < 3) { throw new Error("setPath needs at least 3 vertices"); }
+            var ps = new Shape(); var vv = [];
+            for (var q = 0; q < args.vertices.length; q++) { vv.push([Number(args.vertices[q][0]), Number(args.vertices[q][1])]); }
+            ps.vertices = vv; ps.closed = (args.closed !== false);
+            var sp = tp.property("ADBE Mask Shape");
+            if (args.time !== undefined && args.time !== null) { sp.setValueAtTime(Number(args.time), ps); } else { sp.setValue(ps); }
+            return { layerId: layer.id, maskIndex: tp.propertyIndex, vertices: vv.length, numKeys: sp.numKeys };
+        }
+        if (cmd === "setFeather") {
+            var tf = args.maskIndex ? parade.property(Number(args.maskIndex)) : parade.property(parade.numProperties);
+            if (!tf) { throw new Error("No mask to set - add one first"); }
+            var fp = tf.property("ADBE Mask Feather");
+            var fv = [Number(args.feather || 0), Number(args.feather || 0)];
+            if (args.time !== undefined && args.time !== null) { fp.setValueAtTime(Number(args.time), fv); } else { fp.setValue(fv); }
+            return { layerId: layer.id, maskIndex: tf.propertyIndex, feather: fv[0], numKeys: fp.numKeys };
+        }
         if (cmd === "remove") {
             var victim = parade.property(Number(args.maskIndex));
             if (!victim) { throw new Error("No mask at index " + args.maskIndex); }

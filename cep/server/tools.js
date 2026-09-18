@@ -38,12 +38,17 @@ const TOOLS = [
       'depth defaults to 2, which is transform plus effect group headers. Raise it to drill into ' +
       'ONE branch via `path`; a depth-6 walk of a shape layer can run to thousands of tokens.\n' +
       '- propertyValues: read specific properties by path.\n' +
-      '- selection: what the user currently has selected.\n\n' +
+      '- selection: what the user currently has selected.\n' +
+      '- bounds: how large a layer ACTUALLY renders, via sourceRectAtTime. Use this before ' +
+      'positioning text - a string\'s rendered width is not knowable from its font size, and ' +
+      'guessing is how text ends up clipped or off-centre. Returns layer-space and an ' +
+      'approximate comp-space box. A freshly created shape layer can report 0x0 until After ' +
+      'Effects has evaluated it, so check `reliable` before trusting a zero.\n\n' +
       'Ids from these are stable across reorders and saves. Always address by id.',
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: ['sessionInfo', 'tree', 'find', 'propertyKeys', 'propertyValues', 'selection'] },
+        command: { type: 'string', enum: ['sessionInfo', 'tree', 'find', 'propertyKeys', 'propertyValues', 'selection', 'bounds'] },
         compId: { type: 'number', description: 'Composition id. Defaults to the active comp.' },
         layerId: { type: 'number', description: 'Layer id, required by propertyKeys and propertyValues.' },
         name: { type: 'string', description: 'find: case-insensitive substring.' },
@@ -53,6 +58,8 @@ const TOOLS = [
         paths: { type: 'array', items: { type: 'array', items: { type: 'string' } }, description: 'propertyValues: matchName paths to read.' },
         depth: { type: 'number', description: 'propertyKeys depth, 1-8. Default 2. Start shallow.' },
         includeValues: { type: 'boolean', description: 'propertyKeys: include current values. Roughly doubles output size.' },
+        time: { type: 'number', description: 'bounds: evaluate at this time. Defaults to the playhead.' },
+        includeExtents: { type: 'boolean', description: 'bounds: include masks and effects in the box.' },
         limit: { type: 'number', description: 'find: max matches. Default 100.' },
       },
       required: ['command'],
@@ -107,7 +114,7 @@ const TOOLS = [
       properties: {
         layerId: { type: 'number' },
         path: { type: 'array', items: { type: 'string' } },
-        add: { type: 'array', items: { type: 'object', properties: { time: { type: 'number' }, value: {} }, required: ['time', 'value'] } },
+        add: { type: 'array', items: { type: 'object', properties: { time: { type: 'number' }, value: {}, hold: { type: 'boolean', description: 'Freeze this value until the next key - for cuts and stepped motion.' } }, required: ['time', 'value'] } },
         remove: { type: 'array', items: { type: 'number' }, description: '1-based key indices to delete.' },
         ease: {
           type: 'object',
@@ -235,11 +242,14 @@ const TOOLS = [
       'origin and not the anchor point. A rect from (0,0) sized w x h crops the layer to its ' +
       'first w pixels.\n\n' +
       'Pass a `time` to setRect to make the mask shape a keyframe, so the reveal animates. ' +
-      'Call add once, then setRect repeatedly at different times.',
+      'Call add once, then setRect repeatedly at different times.\n\n' +
+      'setPath takes arbitrary vertices for non-rectangular masks, and setFeather softens the ' +
+      'edge (also keyframeable). To clip a layer to the SHAPE of another layer rather than to a ' +
+      'path, use ae_compose setTrackMatte instead.',
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: ['add', 'setRect', 'list', 'remove'] },
+        command: { type: 'string', enum: ['add', 'setRect', 'setPath', 'setFeather', 'list', 'remove'] },
         layerId: { type: 'number' },
         maskIndex: { type: 'number', description: 'Defaults to the most recently added mask.' },
         name: { type: 'string' },
@@ -251,8 +261,132 @@ const TOOLS = [
         inverted: { type: 'boolean' },
         feather: { type: 'number' },
         expansion: { type: 'number' },
+        vertices: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'setPath: [[x,y], ...] in layer space, 3 or more.' },
+        closed: { type: 'boolean', description: 'setPath. Default true.' },
       },
       required: ['command', 'layerId'],
+    },
+  },
+  {
+    name: 'ae_timing',
+    description:
+      'When things happen: layer in/out points, comp duration and frame rate, and markers.\n\n' +
+      'Without this every layer spans the whole composition, which is almost never what a real ' +
+      'sequence looks like. setLayer applies startTime FIRST and then in/out, because moving ' +
+      'startTime shifts both by the same amount - so writing them in the other order silently ' +
+      'gives a different result.\n\n' +
+      'setComp can change duration, frameRate and size AFTER the comp exists. Markers attach to ' +
+      'a comp, or to a layer when you pass layerId.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', enum: ['setLayer', 'setComp', 'addMarker'] },
+        layerId: { type: 'number' },
+        compId: { type: 'number' },
+        inPoint: { type: 'number', description: 'Seconds. When the layer starts being visible.' },
+        outPoint: { type: 'number' },
+        startTime: { type: 'number', description: 'Shifts the layer in time, moving in/out with it.' },
+        stretch: { type: 'number', description: 'Time stretch percentage. 100 is normal, 200 is half speed.' },
+        duration: { type: 'number' },
+        frameRate: { type: 'number' },
+        width: { type: 'number' },
+        height: { type: 'number' },
+        workAreaStart: { type: 'number' },
+        workAreaDuration: { type: 'number' },
+        time: { type: 'number', description: 'addMarker: where to place it.' },
+        comment: { type: 'string', description: 'addMarker: the marker text.' },
+      },
+      required: ['command'],
+    },
+  },
+  {
+    name: 'ae_shapes',
+    description:
+      'Create shape layers with real vector geometry: rect, ellipse, polygon, star, or a freeform ' +
+      'path from vertices.\n\n' +
+      'Prefer this over a solid whenever the geometry itself should animate. A rectangle\'s Size ' +
+      'is a real animatable property, so a bar that grows is a Size keyframe rather than a scale ' +
+      'that stretches the artwork. Solids can only scale.\n\n' +
+      'The response includes a `paths` map of matchName paths to every animatable property it ' +
+      'created - size, roundness, fill colour, stroke width, group transform - so you can drive ' +
+      'them with ae_set or ae_animate without reconstructing the vector tree yourself.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', enum: ['create'] },
+        compId: { type: 'number' },
+        kind: { type: 'string', enum: ['rect', 'ellipse', 'polygon', 'star', 'path'] },
+        name: { type: 'string' },
+        width: { type: 'number' },
+        height: { type: 'number' },
+        roundness: { type: 'number', description: 'rect only: corner radius.' },
+        points: { type: 'number', description: 'polygon/star: number of points.' },
+        outerRadius: { type: 'number' },
+        innerRadius: { type: 'number', description: 'star only.' },
+        vertices: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'path only: [[x,y], ...].' },
+        closed: { type: 'boolean', description: 'path only. Default true.' },
+        fill: { description: 'RGBA 0-1 array, or false for no fill. Defaults to white.' },
+        stroke: { type: 'array', items: { type: 'number' }, description: 'RGBA 0-1. Omit for no stroke.' },
+        strokeWidth: { type: 'number' },
+        position: { type: 'array', items: { type: 'number' } },
+      },
+      required: ['command'],
+    },
+  },
+  {
+    name: 'ae_compose',
+    description:
+      'Structure: grouping, clipping by another layer, blend modes, parenting, 3D.\n\n' +
+      '- precompose: collapse layers into a nested composition. Use it when many layers must move ' +
+      'together - one parent moving beats N layers each carrying identical keyframes.\n' +
+      '- setTrackMatte: clip a layer to the alpha or luma of ANOTHER layer. This is the tool for ' +
+      'non-rectangular clipping; ae_masks covers rectangles. The matte layer does not need to be ' +
+      'adjacent.\n' +
+      '- parent: by default the child keeps its on-screen position (setParentWithJump). Pass ' +
+      'keepPosition:false to keep its raw numbers and let it jump instead.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', enum: ['precompose', 'setTrackMatte', 'setBlendMode', 'parent', 'set3D', 'addCamera'] },
+        compId: { type: 'number' },
+        layerId: { type: 'number' },
+        layerIds: { type: 'array', items: { type: 'number' }, description: 'precompose: layers to collapse.' },
+        name: { type: 'string' },
+        moveAttributes: { type: 'boolean', description: 'precompose: move transforms into the new comp. Default true.' },
+        matteLayerId: { type: ['number', 'null'], description: 'setTrackMatte: null removes the matte.' },
+        type: { type: 'string', enum: ['alpha', 'alphaInverted', 'luma', 'lumaInverted'] },
+        mode: { type: 'string', description: 'setBlendMode: normal, multiply, screen, overlay, add, darken, lighten, difference, softLight, hardLight, colorDodge, colorBurn, hue, saturation, color, luminosity.' },
+        parentLayerId: { type: ['number', 'null'] },
+        keepPosition: { type: 'boolean', description: 'parent: default true, keeps the child on screen.' },
+        enabled: { type: 'boolean' },
+      },
+      required: ['command'],
+    },
+  },
+  {
+    name: 'ae_render',
+    description:
+      'Render a composition to a real file through the render queue. This is the deliverable; ' +
+      'ae_capture is for looking, not for output.\n\n' +
+      'BLOCKING and potentially slow - a long comp can take minutes, and After Effects is ' +
+      'unresponsive throughout. Render a short range first if you are unsure.\n\n' +
+      'Format is not directly settable in After Effects scripting, so it comes from an output ' +
+      'module template. Run listTemplates to see what this machine has; "Lossless" and the H.264 ' +
+      'presets are usually present. Any other queued items are disabled during the render and ' +
+      'restored afterwards, so this never renders somebody else\'s queue.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', enum: ['render', 'listTemplates'] },
+        compId: { type: 'number' },
+        outputPath: { type: 'string', description: 'Absolute path with a media extension.' },
+        omTemplate: { type: 'string', description: 'Output module template name. Default: an H.264 preset.' },
+        rsTemplate: { type: 'string', description: 'Render settings template, e.g. "Best Settings".' },
+        startTime: { type: 'number' },
+        endTime: { type: 'number' },
+        overwrite: { type: 'boolean', description: 'Required to replace an existing file.' },
+      },
+      required: ['command'],
     },
   },
   {
@@ -275,8 +409,15 @@ const TOOLS = [
  * @param {(op:string,args:object,timeoutMs?:number)=>Promise<object>} callHost
  */
 function createToolRegistry(callHost) {
+  /*
+   * Most ops answer in milliseconds. A render does not: renderQueue.render()
+   * blocks until the job finishes, so it gets its own long ceiling rather than
+   * timing out on every real output.
+   */
+  const LONG_OPS = { render: 30 * 60 * 1000, captureSequence: 5 * 60 * 1000 };
+
   async function host(op, args) {
-    const res = await callHost(op, args);
+    const res = await callHost(op, args, LONG_OPS[op]);
     if (!res.ok) {
       const e = res.error || {};
       throw new Error(`${e.code || 'error'}: ${e.message || 'unknown host failure'}`);
@@ -350,6 +491,10 @@ function createToolRegistry(callHost) {
       return textContent(result);
     },
     ae_masks: (a) => host('masks', a).then(textContent),
+    ae_timing: (a) => host('timing', a).then(textContent),
+    ae_shapes: (a) => host('shapes', a).then(textContent),
+    ae_compose: (a) => host('compose', a).then(textContent),
+    ae_render: (a) => host('render', a).then(textContent),
     ae_layers: (a) => host('layers', a).then(textContent),
     ae_effects: (a) => host('effects', a).then(textContent),
     ae_project: (a) => host('project', a).then(textContent),

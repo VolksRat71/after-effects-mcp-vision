@@ -25,7 +25,8 @@ test('every tool has a name, a description and an object schema', () => {
 test('the tool surface is the eight documented tools', () => {
   assert.deepStrictEqual(
     TOOLS.map((t) => t.name).sort(),
-    ['ae_animate', 'ae_capture', 'ae_diagnostics', 'ae_effects', 'ae_layers', 'ae_masks', 'ae_project', 'ae_query', 'ae_set'],
+    ['ae_animate', 'ae_capture', 'ae_compose', 'ae_diagnostics', 'ae_effects', 'ae_layers',
+     'ae_masks', 'ae_project', 'ae_query', 'ae_render', 'ae_set', 'ae_shapes', 'ae_timing'],
   );
 });
 
@@ -135,4 +136,53 @@ test('ae_animate skips the easing call when none is requested', async () => {
   const reg = createToolRegistry(host.fn);
   await reg.callTool('ae_animate', { layerId: 7, path: ['a', 'b'] });
   assert.deepStrictEqual(host.calls.map((c) => c.op), ['keyframes']);
+});
+
+test('the new build tools each map to their host op', async () => {
+  const host = stubHost();
+  const reg = createToolRegistry(host.fn);
+  await reg.callTool('ae_timing', { command: 'setLayer' });
+  await reg.callTool('ae_shapes', { command: 'create' });
+  await reg.callTool('ae_compose', { command: 'precompose' });
+  await reg.callTool('ae_render', { command: 'listTemplates' });
+  assert.deepStrictEqual(host.calls.map((c) => c.op), ['timing', 'shapes', 'compose', 'render']);
+});
+
+test('render is given a long timeout, since renderQueue.render blocks', async () => {
+  const seen = [];
+  const reg = createToolRegistry(async (op, args, timeoutMs) => {
+    seen.push({ op, timeoutMs });
+    return { ok: true, result: {} };
+  });
+  await reg.callTool('ae_render', { command: 'render', outputPath: '/tmp/x.mov' });
+  await reg.callTool('ae_query', { command: 'sessionInfo' });
+  assert.ok(seen[0].timeoutMs >= 60000, 'a render must not inherit the default 30s timeout');
+  assert.strictEqual(seen[1].timeoutMs, undefined, 'ordinary reads keep the default');
+});
+
+test('ae_query exposes bounds, so layout does not have to be guessed', async () => {
+  const host = stubHost();
+  const reg = createToolRegistry(host.fn);
+  await reg.callTool('ae_query', { command: 'bounds', layerId: 3 });
+  assert.strictEqual(host.calls[0].op, 'bounds');
+  const q = TOOLS.find((t) => t.name === 'ae_query');
+  assert.match(q.description, /sourceRectAtTime/);
+  assert.match(q.description, /reliable/, 'must warn that a fresh shape layer reports 0x0');
+});
+
+test('ae_shapes steers callers away from scaling solids', () => {
+  const sh = TOOLS.find((t) => t.name === 'ae_shapes');
+  assert.match(sh.description, /Size/);
+  assert.match(sh.description, /paths/, 'must promise the matchName paths back');
+});
+
+test('ae_render warns that it blocks', () => {
+  const r = TOOLS.find((t) => t.name === 'ae_render');
+  assert.match(r.description, /BLOCKING/i);
+  assert.match(r.description, /template/i, 'format comes from an output module template');
+});
+
+test('ae_timing documents that startTime shifts in and out points', () => {
+  const t = TOOLS.find((t) => t.name === 'ae_timing');
+  assert.match(t.description, /startTime FIRST|shifts both/);
 });
