@@ -194,3 +194,18 @@ test('an existing token is never overwritten by a later starter', () => {
   assert.strictEqual(first, second);
   assert.strictEqual(fs.readFileSync(TOKEN_FILE, 'utf8').trim(), first);
 });
+
+test('auth follows the token file, not a value cached at startup', async () => {
+  await withServer(async ({ port, app }) => {
+    // Simulate the file being rewritten after the server booted - which is
+    // exactly what happened on a real install and broke every request.
+    const rotated = rotateToken();
+    assert.notStrictEqual(rotated, app.token, 'precondition: the cached token is now stale');
+
+    const withNew = await rawRequest(port, { host: `127.0.0.1:${port}`, token: rotated });
+    assert.strictEqual(withNew.status, 200, 'the token currently in the file must work');
+
+    const withStale = await rawRequest(port, { host: `127.0.0.1:${port}`, token: app.token });
+    assert.strictEqual(withStale.status, 401, 'the superseded token must stop working');
+  });
+});

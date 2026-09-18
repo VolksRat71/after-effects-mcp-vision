@@ -80,8 +80,12 @@ function loadOrCreateToken() {
     if (err && err.code === 'EEXIST') {
       const winner = readTokenFile();
       if (winner) return winner;
+      // Existing but unreadable. Retry once - a transient read failure must not
+      // cost someone their working token.
+      const retry = readTokenFile();
+      if (retry) return retry;
     }
-    // The file is present but unusable - replace it outright.
+    // Genuinely unusable: replace it.
     persistToken(candidate);
     return candidate;
   }
@@ -194,8 +198,19 @@ function createServer(callHost, options = {}) {
       return;
     }
 
+    /*
+     * Authenticate against the token FILE, not a value cached at startup.
+     *
+     * Caching diverged in practice: the server read the token when it booted,
+     * something rewrote the file 98 seconds later, and from then on every
+     * request failed because the client was reading the file while the server
+     * compared against its stale copy. The file is what clients read, so the
+     * file is the source of truth. It is 64 bytes on loopback - re-reading it
+     * per request costs nothing next to the round trip into After Effects.
+     */
+    const expected = readTokenFile() || token;
     const supplied = String(req.headers.authorization || '').replace(/^Bearer /, '');
-    if (!timingSafeEqual(supplied, token)) {
+    if (!timingSafeEqual(supplied, expected)) {
       json(res, 401, { ok: false, error: { code: 'unauthorized', message: `Missing or bad bearer token. Read it from ${TOKEN_FILE}` } });
       return;
     }
