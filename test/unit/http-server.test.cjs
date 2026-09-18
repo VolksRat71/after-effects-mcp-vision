@@ -176,3 +176,21 @@ test('an omitted port falls back to the default', () => {
   const app = createServer(stubHost, { onLog: () => {} });
   assert.strictEqual(app.port, 8791);
 });
+
+test('concurrent first-run token creation converges on one value', () => {
+  // The panel and the headless server are separate processes that both start
+  // with After Effects. A read-then-write race here made every request 401.
+  fs.rmSync(require('node:path').dirname(TOKEN_FILE), { recursive: true, force: true });
+  const results = [];
+  for (let i = 0; i < 8; i++) results.push(loadOrCreateToken());
+  const unique = new Set(results);
+  assert.strictEqual(unique.size, 1, `expected one token, got ${unique.size}`);
+  assert.strictEqual(fs.readFileSync(TOKEN_FILE, 'utf8').trim(), results[0]);
+});
+
+test('an existing token is never overwritten by a later starter', () => {
+  const first = loadOrCreateToken();
+  const second = loadOrCreateToken();
+  assert.strictEqual(first, second);
+  assert.strictEqual(fs.readFileSync(TOKEN_FILE, 'utf8').trim(), first);
+});

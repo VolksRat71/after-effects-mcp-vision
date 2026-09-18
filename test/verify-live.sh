@@ -8,7 +8,9 @@
 set -uo pipefail
 
 PORT="${AE_MCP_PORT:-8791}"
-TOKEN_FILE="$(node -p "require('os').tmpdir()")/ae-mcp-vision/token"
+# Must match TOKEN_FILE in cep/server/http-server.js. The token lives in the
+# user's home directory and persists across After Effects restarts.
+TOKEN_FILE="$HOME/.ae-mcp-vision/token"
 PASS=0; FAIL=0
 
 ok()   { echo "  PASS  $1"; PASS=$((PASS+1)); }
@@ -43,8 +45,11 @@ else
   bad "health endpoint responds" "${H:-no response - is the extension loaded?}"
 fi
 
+# Match on serverInfo, not the bare service name: an unauthorized response
+# quotes the token path, which also contains "ae-mcp-vision", and that made
+# this a false pass.
 R="$(mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}')"
-echo "$R" | grep -q 'ae-mcp-vision' && ok "MCP initialize" || bad "MCP initialize" "$R"
+echo "$R" | grep -q '"serverInfo"' && ok "MCP initialize" || bad "MCP initialize" "$R"
 
 R="$(mcp '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')"
 COUNT="$(echo "$R" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["result"]["tools"]))' 2>/dev/null || echo 0)"

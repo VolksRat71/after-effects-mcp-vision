@@ -55,23 +55,48 @@ function isWellFormed(token) {
 }
 
 /**
- * Reads the persisted token, or mints and stores one on first run.
- * A malformed or unreadable file is replaced rather than trusted.
+ * Reads the persisted token, or creates one on first run.
+ *
+ * Creation is ATOMIC, via an exclusive open. The panel and the headless server
+ * are separate processes that both start with After Effects, so a plain
+ * read-then-write races: with no file present both saw "missing", both minted a
+ * different token, and both wrote. Last writer won while the process holding
+ * the port kept the other one in memory, and every request 401'd.
+ *
+ * With 'wx' exactly one creator wins; the loser's write fails with EEXIST and
+ * it re-reads what the winner stored, so both converge on one token.
  */
 function loadOrCreateToken() {
+  const existing = readTokenFile();
+  if (existing) return existing;
+
+  const candidate = mintToken();
   try {
-    const existing = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
-    if (isWellFormed(existing)) {
-      // Re-assert permissions in case the file was created loosely.
-      try { fs.chmodSync(TOKEN_FILE, 0o600); } catch (err) { /* best effort */ }
-      return existing;
-    }
+    fs.mkdirSync(TOKEN_DIR, { recursive: true, mode: 0o700 });
+    // 'wx' fails rather than truncating if another process got there first.
+    fs.writeFileSync(TOKEN_FILE, candidate, { mode: 0o600, flag: 'wx' });
+    return candidate;
   } catch (err) {
-    // Missing or unreadable - fall through and create one.
+    if (err && err.code === 'EEXIST') {
+      const winner = readTokenFile();
+      if (winner) return winner;
+    }
+    // The file is present but unusable - replace it outright.
+    persistToken(candidate);
+    return candidate;
   }
-  const token = mintToken();
-  persistToken(token);
-  return token;
+}
+
+function readTokenFile() {
+  try {
+    const raw = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
+    if (!isWellFormed(raw)) return null;
+    // Re-assert permissions in case the file was created loosely.
+    try { fs.chmodSync(TOKEN_FILE, 0o600); } catch (err) { /* best effort */ }
+    return raw;
+  } catch (err) {
+    return null;
+  }
 }
 
 /** Deliberate rotation. Invalidates every existing client config. */
