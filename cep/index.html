@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>AE MCP Vision</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; padding: 14px;
+      font: 12px/1.5 -apple-system, "Segoe UI", sans-serif;
+      background: #1e1e1e; color: #d4d4d4;
+    }
+    h1 { font-size: 13px; margin: 0 0 10px; font-weight: 600; letter-spacing: .01em; }
+    .row { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; }
+    .k { color: #8a8a8a; min-width: 96px; }
+    .v { font-family: ui-monospace, Menlo, monospace; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .up { background: #4ec94e; } .down { background: #d45; } .wait { background: #c90; }
+    .config {
+      margin: 12px 0; padding: 8px; border-radius: 4px;
+      background: #141414; border: 1px solid #333;
+      font-family: ui-monospace, Menlo, monospace; font-size: 11px;
+      white-space: pre; overflow-x: auto; user-select: all;
+    }
+    button {
+      background: #333; color: #ddd; border: 1px solid #4a4a4a;
+      border-radius: 4px; padding: 5px 11px; font-size: 11px; cursor: pointer;
+    }
+    button:hover { background: #3d3d3d; }
+    #log {
+      margin-top: 12px; height: 110px; overflow-y: auto;
+      background: #141414; border: 1px solid #333; border-radius: 4px;
+      padding: 6px; font-family: ui-monospace, Menlo, monospace; font-size: 10px;
+      color: #9a9a9a; white-space: pre-wrap;
+    }
+    .err { color: #e06c6c; }
+  </style>
+</head>
+<body>
+  <h1>AE MCP Vision <span style="color:#6a6a6a;font-weight:400">· status</span></h1>
+  <div class="row"><span class="k">Worker</span><span class="v"><span id="dot" class="dot wait"></span><span id="status">starting…</span></span></div>
+  <div class="row"><span class="k">Node</span><span class="v" id="node">—</span></div>
+  <div class="row"><span class="k">After Effects</span><span class="v" id="ae">—</span></div>
+
+  <div class="config" id="config">waiting for server…</div>
+  <button id="recheck">Re-check</button>
+
+  <div id="log"></div>
+
+  <script>
+    // CEP with --enable-nodejs exposes require() in the page context.
+    require('./client/panel.js').boot();
+  </script>
+</body>
+</html>
