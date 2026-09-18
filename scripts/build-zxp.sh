@@ -28,7 +28,9 @@ rm -rf "$DIST"
 mkdir -p "$STAGE"
 
 # Copy the extension, excluding anything that should never ship.
-( cd "$SRC" && tar --exclude='.DS_Store' --exclude='*.log' -cf - . ) | ( cd "$STAGE" && tar -xf - )
+# .debug opens CEP remote-debugging ports and is strictly a dev aid - it must
+# never ship in a release package.
+( cd "$SRC" && tar --exclude='.DS_Store' --exclude='*.log' --exclude='.debug' -cf - . ) | ( cd "$STAGE" && tar -xf - )
 
 # Keep the manifest version in step with package.json so a released .zxp cannot
 # claim a version the code does not have.

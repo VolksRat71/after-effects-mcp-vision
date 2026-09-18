@@ -98,9 +98,12 @@ cd after-effects-mcp-vision
 npm run install:dev     # symlinks cep/ and enables PlayerDebugMode
 ```
 
-Restart After Effects. The symlink means edits are live — reload the panel
-instead of reinstalling. No signing certificate is involved in local
-development; that is a release concern only.
+Restart After Effects. The symlink means edits are live, though what counts as
+"reload" depends on which half you touched: changes under `cep/client`,
+`cep/server` or the HTML need only the panel reopened, while `cep/host` changes
+need an After Effects restart, because `ScriptPath` loads once at extension
+load. No signing certificate is involved in local development; that is a
+release concern only.
 
 ### Connecting a client
 
@@ -153,9 +156,10 @@ often-repeated claim that it returns the last evaluated expression comes from
 InDesign and does not hold here. `evalScript` genuinely returns a string, and
 that is the whole reason for CEP.
 
-**Why no `node_modules`.** CEP ships its own Node runtime of unknown vintage.
-MCP over HTTP is a small, stable JSON-RPC surface, so it is implemented
-directly. No SDK, no bundler, no runtime-version bet, and a 34 KB package.
+**Why no `node_modules`.** CEP 12 ships **Node v17.7.2** — below the Node 18
+that `@modelcontextprotocol/sdk` requires. MCP over HTTP is a small, stable
+JSON-RPC surface, so it is implemented directly. No SDK, no bundler, no
+runtime-version bet, and a 20-file package.
 
 **Why not UXP.** After Effects 2026 does ship UXP, and accepts UXP plugins since
 22.5 — but the only After Effects-specific UXP plugin Adobe ships has a 97-byte
@@ -193,8 +197,9 @@ encoded in the code so they cannot bite twice.
 
 ```bash
 npm run lint             # parse, ES3 dialect, require/#include/manifest resolution
-npm test                 # 35 unit tests, no After Effects needed
-npm run test:integration # 31 cases against a live After Effects
+npm test                 # unit tests, no After Effects needed
+npm run test:integration # 33 cases against a live After Effects
+./test/verify-live.sh    # the whole stack against a running extension, nothing stubbed
 ```
 
 The integration suite builds a scratch comp, exercises every op against real
