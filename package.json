@@ -1,39 +1,34 @@
 {
-  "name": "after-effects-mcp-enhanced",
-  "version": "1.0.0",
-  "description": "Enhanced MCP server for Adobe After Effects with cross-platform support and extended tools",
-  "author": "Your Name",
+  "name": "after-effects-mcp-vision",
+  "version": "2.0.0",
+  "description": "MCP server that lets an AI agent build and SEE inside a live Adobe After Effects session.",
+  "author": "VolksRat71",
   "repository": {
     "type": "git",
-    "url": "https://github.com/VolksRat71/after-effects-mcp-enhanced.git"
+    "url": "https://github.com/VolksRat71/after-effects-mcp-vision.git"
   },
   "keywords": [
     "after-effects",
+    "adobe",
     "mcp",
     "model-context-protocol",
-    "animation",
-    "adobe",
+    "claude",
+    "ai-agent",
+    "extendscript",
+    "motion-graphics",
+    "cep",
     "automation"
   ],
   "license": "MIT",
   "main": "build/server/index.js",
   "type": "module",
   "scripts": {
-    "build": "tsc && npm run build-jsx",
-    "build-jsx": "node scripts/build-jsx.js",
-    "start": "node build/server/index.js",
-    "bridge-install": "node scripts/bridge-install.js"
+    "test": "node --test test/unit/*.test.cjs",
+    "test:integration": "./test/run-integration.sh",
+    "lint": "node scripts/lint.mjs",
+    "install:dev": "./scripts/cep-install.sh",
+    "uninstall:dev": "./scripts/cep-install.sh --uninstall",
+    "package": "./scripts/build-zxp.sh"
   },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "chokidar": "^4.0.3",
-    "colors": "^1.4.0",
-    "sharp": "^0.33.0",
-    "zod": "^3.22.2"
-  },
-  "devDependencies": {
-    "@types/chokidar": "^1.7.5",
-    "@types/node": "^20.17.30",
-    "typescript": "^5.2.2"
-  }
+  "devDependencies": {}
 }

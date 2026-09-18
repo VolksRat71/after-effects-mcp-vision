@@ -6,11 +6,18 @@
 
 const { callHost } = require('./bridge.js');
 const { createServer, DEFAULT_PORT, TOKEN_FILE } = require('../server/http-server.js');
+const { createMcpHandler } = require('../server/mcp.js');
+const { createToolRegistry } = require('../server/tools.js');
 
 const PORT = Number(process.env.AE_MCP_PORT || DEFAULT_PORT);
 
 async function startServer(onLog = () => {}) {
-  const app = createServer(callHost, { port: PORT, onLog });
+  const registry = createToolRegistry(callHost);
+  const app = createServer(callHost, {
+    port: PORT,
+    onLog,
+    mcpHandler: createMcpHandler(registry),
+  });
   try {
     await app.listen();
     onLog(`http server bound to 127.0.0.1:${app.port}`);

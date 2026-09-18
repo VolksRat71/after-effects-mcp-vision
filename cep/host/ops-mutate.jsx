@@ -271,8 +271,18 @@ var __mcp_mutateOps = {
         }
         if (cmd === "deleteItem") { var it = __mcp_itemById(args.itemId); var id = it.id; it.remove(); return { deletedItemId: id }; }
         if (cmd === "import") {
+            /*
+             * import and save take absolute paths on purpose. Footage lives
+             * wherever the user keeps it and projects save where the user wants,
+             * so sandboxing these would break the tool rather than secure it.
+             * The bearer token on the RPC port is the trust boundary: anything
+             * holding it can drive After Effects as the user, which is the same
+             * model every in-editor MCP server operates under. What is guarded
+             * below is the narrower risk of destroying work by accident.
+             */
             var f = new File(String(args.path));
             if (!f.exists) { throw new Error("No file at " + args.path); }
+            if (f instanceof Folder) { throw new Error("Path is a folder, not a file: " + args.path); }
             var io = new ImportOptions(f);
             if (args.importAs === "composition" && io.canImportAs(ImportAsType.COMP)) {
                 io.importAs = ImportAsType.COMP;
@@ -286,7 +296,20 @@ var __mcp_mutateOps = {
         }
         if (cmd === "save") {
             if (!p.file && !args.path) { throw new Error("Untitled project - pass path to save it somewhere"); }
-            if (args.path) { p.saveAs(new File(String(args.path))); } else { p.save(); }
+            if (args.path) {
+                var target = String(args.path);
+                if (!/\.aepx?$/i.test(target)) {
+                    throw new Error("Project path must end in .aep or .aepx, got: " + target);
+                }
+                var dest = new File(target);
+                // Never silently overwrite someone's project file.
+                if (dest.exists && args.overwrite !== true) {
+                    throw new Error("Refusing to overwrite existing file (pass overwrite:true): " + target);
+                }
+                p.saveAs(dest);
+            } else {
+                p.save();
+            }
             return { saved: true, path: p.file ? p.file.fsName : null };
         }
         throw new Error("Unknown project command: " + cmd);

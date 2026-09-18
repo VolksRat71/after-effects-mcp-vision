@@ -84,6 +84,7 @@ function createServer(callHost, options = {}) {
   const introspect = options.introspect || (() => ({}));
 
   const token = options.token || issueToken();
+  const mcpHandler = options.mcpHandler || null;
 
   const server = http.createServer(async (req, res) => {
     // No CORS surface at all. Nothing in a browser should ever talk to this.
@@ -97,7 +98,12 @@ function createServer(callHost, options = {}) {
     }
 
     // DNS rebinding sends a foreign hostname to a loopback IP. Pin the Host.
-    const allowedHosts = [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`];
+    // Derived from the address actually bound, not the requested port - those
+    // differ whenever the OS assigns the port, and a stale list would 403
+    // every legitimate request.
+    const bound = server.address();
+    const livePort = bound && bound.port ? bound.port : port;
+    const allowedHosts = [`127.0.0.1:${livePort}`, `localhost:${livePort}`, `[::1]:${livePort}`];
     if (!allowedHosts.includes(req.headers.host)) {
       json(res, 403, { ok: false, error: { code: 'forbidden_host', message: `Unexpected Host: ${req.headers.host}` } });
       return;
@@ -134,6 +140,32 @@ function createServer(callHost, options = {}) {
       return;
     }
 
+    if (req.method === 'POST' && (req.url === '/mcp' || req.url === '/')) {
+      if (!mcpHandler) {
+        json(res, 503, { ok: false, error: { code: 'no_mcp_handler', message: 'MCP handler not wired' } });
+        return;
+      }
+      let raw;
+      try {
+        raw = await readBody(req);
+      } catch (err) {
+        json(res, 400, { ok: false, error: { code: 'bad_request', message: String(err) } });
+        return;
+      }
+      const reply = await mcpHandler(raw);
+      if (reply === null) {
+        // JSON-RPC notification: acknowledge with no body. Content-Length: 0
+        // rather than a bare 202, which would otherwise go out chunked and put
+        // a stray "0" terminator on the wire.
+        res.writeHead(202, { 'Content-Length': 0 });
+        res.end();
+        return;
+      }
+      json(res, 200, reply);
+      return;
+    }
+
+    // Low-level escape hatch: call a host op directly, bypassing the tool layer.
     if (req.method === 'POST' && req.url === '/rpc') {
       let parsed;
       try {
