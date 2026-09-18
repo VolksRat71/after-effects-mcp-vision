@@ -9,6 +9,31 @@ var __mcp_mutating = {
     capture: true   // mutates comp.resolutionFactor, then restores it
 };
 
+/*
+ * Capture output is confined to one app-owned directory and callers pass a bare
+ * filename, never a path. Accepting an arbitrary outPath made this an arbitrary
+ * file write: anything that could reach the RPC port could drop a PNG anywhere
+ * the AE process can write, including startup script folders.
+ */
+function __mcp_captureDir() {
+    var dir = new Folder(Folder.temp.fsName + "/ae-mcp-vision");
+    if (!dir.exists) { dir.create(); }
+    return dir;
+}
+
+function __mcp_safeCaptureFile(fileName) {
+    if (!fileName) { throw new Error("capture requires fileName"); }
+    fileName = String(fileName);
+    if (fileName.indexOf("/") !== -1 || fileName.indexOf("\\") !== -1 ||
+        fileName.indexOf("..") !== -1 || fileName.indexOf(":") !== -1) {
+        throw new Error("fileName must be a bare filename with no path separators");
+    }
+    if (!/^[A-Za-z0-9._-]+\.png$/.test(fileName)) {
+        throw new Error("fileName must match [A-Za-z0-9._-]+.png");
+    }
+    return new File(__mcp_captureDir().fsName + "/" + fileName);
+}
+
 function __mcp_findComp(args) {
     var p = app.project;
     if (args.compId !== undefined && args.compId !== null) {
@@ -63,9 +88,11 @@ var __mcp_ops = {
      *   pixel dimensions, so it is the cost lever for hitting a target size.
      */
     capture: function (args) {
+        // Validate caller input BEFORE touching project state, so a bad
+        // filename fails the same way whether or not a comp happens to exist.
+        var file = __mcp_safeCaptureFile(args.fileName);
+        var outPath = file.fsName;
         var comp = __mcp_findComp(args);
-        var outPath = args.outPath;
-        if (!outPath) { throw new Error("capture requires outPath"); }
 
         var time = (args.time === undefined || args.time === null) ? comp.time : Number(args.time);
         if (time < 0 || time > comp.duration) {
@@ -77,7 +104,6 @@ var __mcp_ops = {
         var factor = Math.max(1, Math.min(99, Math.round(compLong / longEdge)));
 
         var original = comp.resolutionFactor;
-        var file = new File(outPath);
         var waited = 0;
         var timeoutMs = Number(args.timeoutMs || 10000);
 

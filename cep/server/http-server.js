@@ -11,8 +11,41 @@
  */
 
 const http = require('http');
+const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const DEFAULT_PORT = 8791;
+
+/*
+ * Loopback binding alone is not access control. Any local process can reach
+ * this port, and a web page can attack it via DNS rebinding or a simple-request
+ * CSRF. Since every op here drives After Effects and touches the filesystem,
+ * the port is authenticated:
+ *
+ *   - a per-launch bearer token, written 0600 for the local MCP client to read
+ *   - Host must be exactly loopback:<port>, which defeats DNS rebinding
+ *   - any request carrying an Origin is rejected outright; browsers cannot set
+ *     Authorization cross-origin without a preflight, which we also reject
+ */
+const TOKEN_FILE = path.join(os.tmpdir(), 'ae-mcp-vision', 'token');
+
+function issueToken() {
+  const token = crypto.randomBytes(32).toString('hex');
+  fs.mkdirSync(path.dirname(TOKEN_FILE), { recursive: true });
+  fs.writeFileSync(TOKEN_FILE, token, { mode: 0o600 });
+  // writeFileSync only applies mode on create; enforce it if the file existed.
+  fs.chmodSync(TOKEN_FILE, 0o600);
+  return token;
+}
+
+function timingSafeEqual(a, b) {
+  const ab = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
 
 function json(res, status, body) {
   const payload = JSON.stringify(body);
@@ -50,9 +83,31 @@ function createServer(callHost, options = {}) {
   const log = options.onLog || (() => {});
   const introspect = options.introspect || (() => ({}));
 
+  const token = options.token || issueToken();
+
   const server = http.createServer(async (req, res) => {
-    // Bound to loopback only, but still reject cross-origin browser callers.
+    // No CORS surface at all. Nothing in a browser should ever talk to this.
     res.setHeader('Access-Control-Allow-Origin', 'null');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    // A present Origin means a browser is calling. Always refuse.
+    if (req.headers.origin) {
+      json(res, 403, { ok: false, error: { code: 'forbidden_origin', message: 'Cross-origin requests are not accepted' } });
+      return;
+    }
+
+    // DNS rebinding sends a foreign hostname to a loopback IP. Pin the Host.
+    const allowedHosts = [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`];
+    if (!allowedHosts.includes(req.headers.host)) {
+      json(res, 403, { ok: false, error: { code: 'forbidden_host', message: `Unexpected Host: ${req.headers.host}` } });
+      return;
+    }
+
+    const supplied = String(req.headers.authorization || '').replace(/^Bearer /, '');
+    if (!timingSafeEqual(supplied, token)) {
+      json(res, 401, { ok: false, error: { code: 'unauthorized', message: `Missing or bad bearer token. Read it from ${TOKEN_FILE}` } });
+      return;
+    }
 
     if (req.method === 'GET' && req.url === '/health') {
       let host = { reachable: false };
@@ -106,6 +161,8 @@ function createServer(callHost, options = {}) {
   return {
     server,
     port,
+    token,
+    tokenFile: TOKEN_FILE,
     listen() {
       return new Promise((resolve, reject) => {
         server.once('error', reject);
@@ -124,4 +181,4 @@ function satisfiesNode18(version) {
   return Number.isFinite(major) && major >= 18;
 }
 
-module.exports = { createServer, DEFAULT_PORT, satisfiesNode18 };
+module.exports = { createServer, DEFAULT_PORT, satisfiesNode18, TOKEN_FILE };

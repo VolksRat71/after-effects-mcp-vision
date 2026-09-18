@@ -13,7 +13,8 @@
  */
 
 const { callHost } = require('./bridge.js');
-const { startServer, PORT } = require('./start-server.js');
+const { startServer, PORT, TOKEN_FILE } = require('./start-server.js');
+const fs = require('fs');
 
 let owned = null;
 
@@ -33,16 +34,33 @@ function setStatus(state, text) {
   $('status').textContent = text;
 }
 
+function readToken() {
+  try { return fs.readFileSync(TOKEN_FILE, 'utf8').trim(); } catch (err) { return null; }
+}
+
 function showConfig(port) {
+  const token = readToken();
   $('config').textContent = JSON.stringify(
-    { mcpServers: { 'ae-vision': { type: 'http', url: `http://127.0.0.1:${port}/mcp` } } },
+    {
+      mcpServers: {
+        'ae-vision': {
+          type: 'http',
+          url: `http://127.0.0.1:${port}/mcp`,
+          // Per-launch token. Regenerated every time the server starts.
+          headers: { Authorization: `Bearer ${token || '<token unavailable>'}` },
+        },
+      },
+    },
     null, 2
   );
 }
 
 async function probeHealth(port) {
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/health`);
+    const token = readToken();
+    const res = await fetch(`http://127.0.0.1:${port}/health`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
     return res.ok ? await res.json() : null;
   } catch (err) {
     return null;
