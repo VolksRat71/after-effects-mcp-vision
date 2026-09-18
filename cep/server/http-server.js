@@ -31,13 +31,25 @@ const DEFAULT_PORT = 8791;
  */
 const TOKEN_FILE = path.join(os.tmpdir(), 'ae-mcp-vision', 'token');
 
-function issueToken() {
-  const token = crypto.randomBytes(32).toString('hex');
+function mintToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+/*
+ * Persisting the token is deliberately separate from minting it, and only
+ * happens once listen() succeeds.
+ *
+ * Writing it at construction time was a real bug: reopening the panel built a
+ * second server, rewrote the token file, then failed to bind because the first
+ * server still held the port - leaving a token on disk that the running server
+ * did not recognise, so every subsequent request 401'd. A failed start must
+ * never invalidate a working one.
+ */
+function persistToken(token) {
   fs.mkdirSync(path.dirname(TOKEN_FILE), { recursive: true });
   fs.writeFileSync(TOKEN_FILE, token, { mode: 0o600 });
   // writeFileSync only applies mode on create; enforce it if the file existed.
   fs.chmodSync(TOKEN_FILE, 0o600);
-  return token;
 }
 
 function timingSafeEqual(a, b) {
@@ -83,7 +95,7 @@ function createServer(callHost, options = {}) {
   const log = options.onLog || (() => {});
   const introspect = options.introspect || (() => ({}));
 
-  const token = options.token || issueToken();
+  const token = options.token || mintToken();
   const mcpHandler = options.mcpHandler || null;
 
   const server = http.createServer(async (req, res) => {
@@ -199,7 +211,11 @@ function createServer(callHost, options = {}) {
       return new Promise((resolve, reject) => {
         server.once('error', reject);
         // Loopback only. This must never be reachable off-machine.
-        server.listen(port, '127.0.0.1', () => resolve(port));
+        server.listen(port, '127.0.0.1', () => {
+          // Only now is this server authoritative, so only now write the token.
+          persistToken(token);
+          resolve(port);
+        });
       });
     },
     close() {

@@ -37,9 +37,26 @@ function __mcp_coerceForProperty(p, value) {
             if (value.text !== undefined) { td.text = String(value.text); }
             if (value.fontSize !== undefined) { td.fontSize = Number(value.fontSize); }
             if (value.font !== undefined) { td.font = String(value.font); }
+            if (value.fillColor !== undefined) { td.fillColor = value.fillColor; }
+            if (value.tracking !== undefined) { td.tracking = Number(value.tracking); }
+            if (value.leading !== undefined) { td.leading = Number(value.leading); }
+            /*
+             * Justification matters more than it looks. Point text anchors at
+             * the baseline LEFT, so setting a layer's position to the comp
+             * centre puts the text's left edge there, not its middle - it reads
+             * as "pushed right and clipped". Centre-justifying is the fix, and
+             * without this branch there was no way to reach it.
+             */
+            if (value.justification !== undefined) {
+                var j = String(value.justification).toLowerCase();
+                if (j === "center" || j === "centre") { td.justification = ParagraphJustification.CENTER_JUSTIFY; }
+                else if (j === "left") { td.justification = ParagraphJustification.LEFT_JUSTIFY; }
+                else if (j === "right") { td.justification = ParagraphJustification.RIGHT_JUSTIFY; }
+                else { throw new Error("justification must be left, center or right"); }
+            }
             return td;
         }
-        throw new Error("expected a string or {text,fontSize,font}");
+        throw new Error("expected a string or {text,fontSize,font,justification,fillColor,tracking,leading}");
     }
     return value;
 }

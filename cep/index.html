@@ -48,8 +48,54 @@
   <div id="log"></div>
 
   <script>
-    // CEP with --enable-nodejs exposes require() in the page context.
-    require('./client/panel.js').boot();
+    /*
+     * Never let the panel fail silently. If require() or Node is unavailable,
+     * the page would otherwise sit on "starting..." forever with an empty log
+     * and no way to tell whether the script ran at all.
+     */
+    (function () {
+      var statusEl = document.getElementById('status');
+      var logEl = document.getElementById('log');
+      function fatal(stage, err) {
+        var msg = 'FAILED at "' + stage + '": ' + (err && err.stack ? err.stack : err);
+        if (statusEl) statusEl.textContent = 'failed - see log';
+        var dot = document.getElementById('dot');
+        if (dot) dot.className = 'dot down';
+        if (logEl) {
+          var line = document.createElement('div');
+          line.className = 'err';
+          line.textContent = msg;
+          logEl.appendChild(line);
+        }
+        try {
+          var os = require('os'), fs = require('fs'), path = require('path');
+          var dir = path.join(os.tmpdir(), 'ae-mcp-vision');
+          fs.mkdirSync(dir, { recursive: true });
+          fs.appendFileSync(path.join(dir, 'boot.log'), new Date().toISOString() + ' panel ' + msg + '\n');
+        } catch (e) { /* nothing left to report with */ }
+      }
+      var stage = 'start';
+      try {
+        stage = 'require()';
+        if (typeof require !== 'function') {
+          throw new Error('require() is not defined - --enable-nodejs did not take effect for this extension');
+        }
+        stage = 'node runtime';
+        if (typeof process === 'undefined' || !process.version) {
+          throw new Error('process is undefined - CEP did not expose a Node runtime');
+        }
+        stage = 'resolving extension root';
+        // file:// gives a URL-encoded __dirname; decode before requiring.
+        var root = decodeURIComponent(window.location.pathname).replace(/\/[^/]*$/, '');
+        stage = "require(panel.js) from " + root;
+        var panel = require(require('path').join(root, 'client', 'panel.js'));
+        stage = 'panel.boot()';
+        var p = panel.boot();
+        if (p && typeof p.catch === 'function') { p.catch(function (e) { fatal('panel.boot() async', e); }); }
+      } catch (err) {
+        fatal(stage, err);
+      }
+    })();
   </script>
 </body>
 </html>

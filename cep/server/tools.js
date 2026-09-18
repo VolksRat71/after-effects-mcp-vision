@@ -82,7 +82,7 @@ const TOOLS = [
             properties: {
               layerId: { type: 'number' },
               path: { type: 'array', items: { type: 'string' } },
-              value: { description: 'Number for 1D, array for 2D/3D/colour, string or {text,fontSize,font} for text.' },
+              value: { description: 'Number for 1D, array for 2D/3D/colour. For a text document: a string, or {text,fontSize,font,justification,fillColor,tracking,leading}. Point text anchors at the baseline LEFT, so centre it with justification:"center" rather than by nudging position.' },
               expression: { type: 'string' },
               time: { type: 'number', description: 'Present = write a keyframe at this time.' },
             },

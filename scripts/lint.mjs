@@ -61,9 +61,14 @@ for (const f of files.filter((f) => extname(f) === '.jsx')) {
   });
 }
 
+// Strip comments so prose mentioning require()/#include is not treated as code.
+function stripComments(src) {
+  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+}
+
 // 3. Every relative require() must resolve.
 for (const f of files.filter((f) => ['.js', '.cjs'].includes(extname(f)))) {
-  const src = readFileSync(f, 'utf8');
+  const src = stripComments(readFileSync(f, 'utf8'));
   for (const m of src.matchAll(/require\('(\.[^']+)'\)/g)) {
     const target = resolve(dirname(f), m[1]);
     if (!files.includes(target)) problems.push(`${rel(f)}: require('${m[1]}') does not resolve`);
@@ -72,7 +77,7 @@ for (const f of files.filter((f) => ['.js', '.cjs'].includes(extname(f)))) {
 
 // 4. Every #include in the ExtendScript host must resolve.
 for (const f of files.filter((f) => extname(f) === '.jsx')) {
-  const src = readFileSync(f, 'utf8');
+  const src = stripComments(readFileSync(f, 'utf8'));
   for (const m of src.matchAll(/#include\s+"([^"]+)"/g)) {
     const target = resolve(dirname(f), m[1]);
     if (!files.includes(target)) problems.push(`${rel(f)}: #include "${m[1]}" does not resolve`);

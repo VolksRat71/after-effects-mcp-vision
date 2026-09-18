@@ -117,3 +117,20 @@ test('an unknown route is a 404', async () => {
     assert.strictEqual(r.status, 404);
   });
 });
+
+test('a server that fails to bind does not clobber a working server\'s token', async () => {
+  await withServer(async ({ app: first, port }) => {
+    const firstToken = fs.readFileSync(first.tokenFile, 'utf8');
+
+    // A second server on the same port must fail to listen...
+    const second = createServer(stubHost, { port, onLog: () => {} });
+    await assert.rejects(() => new Promise((resolve, reject) => {
+      second.server.once('error', reject);
+      second.server.listen(port, '127.0.0.1', resolve);
+    }));
+
+    // ...and must have left the first server's token untouched.
+    assert.strictEqual(fs.readFileSync(first.tokenFile, 'utf8'), firstToken);
+    assert.notStrictEqual(second.token, firstToken);
+  });
+});
