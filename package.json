@@ -30,7 +30,10 @@
     "uninstall:dev": "./scripts/cep-install.sh --uninstall",
     "package": "./scripts/build-zxp.sh",
     "install:dev:win": "powershell -ExecutionPolicy Bypass -File scripts/cep-install.ps1",
-    "uninstall:dev:win": "powershell -ExecutionPolicy Bypass -File scripts/cep-install.ps1 -Uninstall"
+    "uninstall:dev:win": "powershell -ExecutionPolicy Bypass -File scripts/cep-install.ps1 -Uninstall",
+    "package:dmg": "./scripts/build-dmg.sh",
+    "package:all": "npm run package && npm run package:dmg",
+    "package:exe": "iscc /DAppVersion=$npm_package_version scripts/installer/windows-installer.iss"
   },
   "devDependencies": {},
   "os": [

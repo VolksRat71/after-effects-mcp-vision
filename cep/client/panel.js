@@ -38,21 +38,65 @@ function readToken() {
   try { return fs.readFileSync(TOKEN_FILE, 'utf8').trim(); } catch (err) { return null; }
 }
 
-function showConfig(port) {
-  const token = readToken();
-  $('config').textContent = JSON.stringify(
-    {
-      mcpServers: {
-        'ae-vision': {
-          type: 'http',
-          url: `http://127.0.0.1:${port}/mcp`,
-          // Per-launch token. Regenerated every time the server starts.
-          headers: { Authorization: `Bearer ${token || '<token unavailable>'}` },
-        },
-      },
-    },
+/*
+ * Client configs. Three shapes, because the clients genuinely differ:
+ * Claude embeds the token in JSON, while Codex takes TOML and reads the token
+ * from an environment variable rather than the file.
+ *
+ * The token persists across After Effects restarts, so anything pasted from
+ * here keeps working - that is the whole reason it is no longer per-launch.
+ */
+function clientConfigs(port, token) {
+  const url = `http://127.0.0.1:${port}/mcp`;
+  const t = token || '<open After Effects to generate a token>';
+
+  const claudeJson = JSON.stringify(
+    { mcpServers: { 'ae-vision': { type: 'http', url, headers: { Authorization: `Bearer ${t}` } } } },
     null, 2
   );
+
+  return {
+    'Claude Code': {
+      hint: 'Add to .mcp.json in your project, or ~/.claude.json for every project.',
+      body: claudeJson,
+    },
+    'Claude Desktop': {
+      hint: 'Settings > Developer > Edit Config, then restart Claude Desktop.',
+      body: claudeJson,
+    },
+    'Codex CLI / Desktop': {
+      hint: 'Add to ~/.codex/config.toml. Codex reads the token from the environment, so export it too.',
+      body:
+        `[mcp_servers.ae_vision]\n` +
+        `url = "${url}"\n` +
+        `bearer_token_env_var = "AE_MCP_TOKEN"\n\n` +
+        `# then, in your shell profile:\n` +
+        `export AE_MCP_TOKEN="${t}"`,
+    },
+  };
+}
+
+let activeClient = 'Claude Code';
+
+function showConfig(port) {
+  const configs = clientConfigs(port, readToken());
+  const tabs = $('tabs');
+  if (tabs && !tabs.childElementCount) {
+    Object.keys(configs).forEach((name) => {
+      const b = document.createElement('button');
+      b.textContent = name;
+      b.className = name === activeClient ? 'tab on' : 'tab';
+      b.addEventListener('click', () => {
+        activeClient = name;
+        Array.from(tabs.children).forEach((c) => { c.className = c.textContent === name ? 'tab on' : 'tab'; });
+        showConfig(port);
+      });
+      tabs.appendChild(b);
+    });
+  }
+  const chosen = configs[activeClient];
+  $('hint').textContent = chosen.hint;
+  $('config').textContent = chosen.body;
 }
 
 async function probeHealth(port) {
@@ -105,6 +149,23 @@ async function boot() {
   // A direct host ping proves ExtendScript answers, independent of the HTTP layer.
   const pong = await callHost('ping', {}, 5000);
   log(pong.ok ? `host ping ok — ${pong.result.aeVersion}` : `host ping failed: ${pong.error.message}`, !pong.ok);
+
+  $('copy').addEventListener('click', () => {
+    const text = $('config').textContent;
+    // CEP's Chromium has the async clipboard API behind a permission the panel
+    // does not have, so fall back to the old selection-based copy.
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      log(`copied ${activeClient} config`);
+    } catch (err) {
+      log(`copy failed: ${err}`, true);
+    }
+  });
 
   $('recheck').addEventListener('click', async () => {
     if (!(await probeHealth(PORT))) {

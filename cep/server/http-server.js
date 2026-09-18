@@ -29,10 +29,56 @@ const DEFAULT_PORT = 8791;
  *   - any request carrying an Origin is rejected outright; browsers cannot set
  *     Authorization cross-origin without a preflight, which we also reject
  */
-const TOKEN_FILE = path.join(os.tmpdir(), 'ae-mcp-vision', 'token');
+/*
+ * The token lives in the user's home directory, not the temp dir, and PERSISTS
+ * across After Effects launches.
+ *
+ * It used to be minted fresh on every start. That is marginally better for
+ * rotation and much worse for everything else: a client config is a static
+ * file, so every AE restart silently broke it, and Codex reads the token from
+ * an environment variable which would go stale the same way. Rotation bought
+ * very little here anyway - the file is the only way the token is ever
+ * distributed, so anyone who can read it once can read it again.
+ *
+ * It is 0600 in the user's own home, bound to loopback, and can be rotated
+ * deliberately via rotateToken().
+ */
+const TOKEN_DIR = path.join(os.homedir(), '.ae-mcp-vision');
+const TOKEN_FILE = path.join(TOKEN_DIR, 'token');
 
 function mintToken() {
   return crypto.randomBytes(32).toString('hex');
+}
+
+function isWellFormed(token) {
+  return typeof token === 'string' && /^[0-9a-f]{64}$/.test(token.trim());
+}
+
+/**
+ * Reads the persisted token, or mints and stores one on first run.
+ * A malformed or unreadable file is replaced rather than trusted.
+ */
+function loadOrCreateToken() {
+  try {
+    const existing = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
+    if (isWellFormed(existing)) {
+      // Re-assert permissions in case the file was created loosely.
+      try { fs.chmodSync(TOKEN_FILE, 0o600); } catch (err) { /* best effort */ }
+      return existing;
+    }
+  } catch (err) {
+    // Missing or unreadable - fall through and create one.
+  }
+  const token = mintToken();
+  persistToken(token);
+  return token;
+}
+
+/** Deliberate rotation. Invalidates every existing client config. */
+function rotateToken() {
+  const token = mintToken();
+  persistToken(token);
+  return token;
 }
 
 /*
@@ -46,7 +92,7 @@ function mintToken() {
  * never invalidate a working one.
  */
 function persistToken(token) {
-  fs.mkdirSync(path.dirname(TOKEN_FILE), { recursive: true });
+  fs.mkdirSync(TOKEN_DIR, { recursive: true, mode: 0o700 });
   fs.writeFileSync(TOKEN_FILE, token, { mode: 0o600 });
   // writeFileSync only applies mode on create; enforce it if the file existed.
   fs.chmodSync(TOKEN_FILE, 0o600);
@@ -97,7 +143,7 @@ function createServer(callHost, options = {}) {
   const log = options.onLog || (() => {});
   const introspect = options.introspect || (() => ({}));
 
-  const token = options.token || mintToken();
+  const token = options.token || loadOrCreateToken();
   const mcpHandler = options.mcpHandler || null;
 
   const server = http.createServer(async (req, res) => {
@@ -213,11 +259,7 @@ function createServer(callHost, options = {}) {
       return new Promise((resolve, reject) => {
         server.once('error', reject);
         // Loopback only. This must never be reachable off-machine.
-        server.listen(port, '127.0.0.1', () => {
-          // Only now is this server authoritative, so only now write the token.
-          persistToken(token);
-          resolve(port);
-        });
+        server.listen(port, '127.0.0.1', () => resolve(port));
       });
     },
     close() {
@@ -231,4 +273,4 @@ function satisfiesNode18(version) {
   return Number.isFinite(major) && major >= 18;
 }
 
-module.exports = { createServer, DEFAULT_PORT, satisfiesNode18, TOKEN_FILE };
+module.exports = { createServer, DEFAULT_PORT, satisfiesNode18, TOKEN_FILE, TOKEN_DIR, rotateToken, loadOrCreateToken };

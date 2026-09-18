@@ -27,6 +27,14 @@
       border-radius: 4px; padding: 5px 11px; font-size: 11px; cursor: pointer;
     }
     button:hover { background: #3d3d3d; }
+    .actions { display: flex; gap: 6px; }
+    .tabs { display: flex; gap: 4px; margin: 12px 0 6px; flex-wrap: wrap; }
+    .tab {
+      background: transparent; border: 1px solid #3a3a3a; color: #9a9a9a;
+      border-radius: 4px; padding: 4px 9px; font-size: 10px; cursor: pointer;
+    }
+    .tab.on { background: #2d2d2d; color: #e8e8e8; border-color: #5a5a5a; }
+    .hint { color: #8a8a8a; font-size: 10px; margin-bottom: 4px; }
     #log {
       margin-top: 12px; height: 110px; overflow-y: auto;
       background: #141414; border: 1px solid #333; border-radius: 4px;
@@ -42,8 +50,13 @@
   <div class="row"><span class="k">Node</span><span class="v" id="node">—</span></div>
   <div class="row"><span class="k">After Effects</span><span class="v" id="ae">—</span></div>
 
+  <div id="tabs" class="tabs"></div>
+  <div class="hint" id="hint"></div>
   <div class="config" id="config">waiting for server…</div>
-  <button id="recheck">Re-check</button>
+  <div class="actions">
+    <button id="copy">Copy config</button>
+    <button id="recheck">Re-check</button>
+  </div>
 
   <div id="log"></div>
 

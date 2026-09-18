@@ -2,7 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert');
 const net = require('node:net');
 const fs = require('node:fs');
-const { createServer } = require('../../cep/server/http-server.js');
+const os = require('node:os');
+const { createServer, rotateToken, loadOrCreateToken, TOKEN_FILE } = require('../../cep/server/http-server.js');
 
 const stubHost = async (op) => ({ ok: true, result: { pong: true, aeVersion: 'stub', op } });
 
@@ -119,9 +120,36 @@ test('an unknown route is a 404', async () => {
   });
 });
 
+test('the token persists across server restarts so client configs keep working', async () => {
+  const first = loadOrCreateToken();
+  const second = loadOrCreateToken();
+  assert.strictEqual(first, second, 'a restart must not invalidate a pasted config');
+  assert.match(first, /^[0-9a-f]{64}$/);
+});
+
+test('a malformed token file is replaced rather than trusted', () => {
+  fs.mkdirSync(require('node:path').dirname(TOKEN_FILE), { recursive: true });
+  fs.writeFileSync(TOKEN_FILE, 'not-a-real-token');
+  const token = loadOrCreateToken();
+  assert.match(token, /^[0-9a-f]{64}$/);
+  assert.strictEqual(fs.readFileSync(TOKEN_FILE, 'utf8').trim(), token);
+});
+
+test('rotation produces a new token and persists it', () => {
+  const before = loadOrCreateToken();
+  const after = rotateToken();
+  assert.notStrictEqual(before, after);
+  assert.strictEqual(fs.readFileSync(TOKEN_FILE, 'utf8').trim(), after);
+});
+
+test('the token lives in the home directory, not a temp dir that gets cleared', () => {
+  assert.ok(TOKEN_FILE.startsWith(os.homedir()),
+    'a temp-dir token would vanish on cleanup and break every saved config');
+});
+
 test('a server that fails to bind does not clobber a working server\'s token', async () => {
   await withServer(async ({ app: first, port }) => {
-    const firstToken = fs.readFileSync(first.tokenFile, 'utf8');
+    const firstToken = fs.readFileSync(first.tokenFile, 'utf8').trim();
 
     // A second server on the same port must fail to listen...
     const second = createServer(stubHost, { port, onLog: () => {} });
@@ -130,9 +158,10 @@ test('a server that fails to bind does not clobber a working server\'s token', a
       second.server.listen(port, '127.0.0.1', resolve);
     }));
 
-    // ...and must have left the first server's token untouched.
-    assert.strictEqual(fs.readFileSync(first.tokenFile, 'utf8'), firstToken);
-    assert.notStrictEqual(second.token, firstToken);
+    // ...and the persisted token must be untouched. Both servers now read the
+    // same stored token rather than minting their own, so they agree.
+    assert.strictEqual(fs.readFileSync(first.tokenFile, 'utf8').trim(), firstToken.trim());
+    assert.strictEqual(second.token, firstToken.trim());
   });
 });
 

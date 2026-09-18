@@ -83,12 +83,12 @@ inside an undo group, so an agent's whole batch is a single Cmd-Z.
 
 ### From a release
 
-1. Download the `.zxp` from [Releases](../../releases).
-2. Drag it onto [ZXPInstaller](https://zxpinstaller.com/).
-3. Restart After Effects.
-4. Open **Window > Extensions > AE MCP Vision** and copy the config it shows.
+Grab an installer from [Releases](../../releases) — `.dmg` for macOS, `.exe` for Windows,
+or the `.zxp` if you already use ZXPInstaller. Quit After Effects first, then run it.
 
-No admin rights needed — CEP extensions install per-user.
+No admin rights needed; everything installs per-user. The installers are unsigned, so
+your OS will warn on first run — [INSTALL.md](docs/INSTALL.md) covers that and the client
+configuration for Claude Code, Claude Desktop and Codex.
 
 ### For development
 
@@ -121,8 +121,10 @@ The panel shows a ready-made config including a **per-launch bearer token**:
 }
 ```
 
-The token is regenerated every time the server starts, so re-copy it after an
-After Effects restart. Set `AE_MCP_PORT` to move the port.
+The token is stored in `~/.ae-mcp-vision/token`, readable only by you, and persists
+across restarts — paste a config once and it keeps working. Set `AE_MCP_PORT` to move the
+port. Full client setup, including Codex's TOML form, is in
+[INSTALL.md](docs/INSTALL.md).
 
 ## How it works
 
