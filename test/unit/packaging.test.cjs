@@ -45,3 +45,14 @@ test('verify-live.sh reads the same token path the server writes', () => {
   assert.doesNotMatch(script, /tmpdir/,
     'verify-live.sh must not read the old temp-dir token path');
 });
+
+test('Gatekeeper instructions match modern macOS, where right-click Open was removed', () => {
+  for (const f of ['docs/INSTALL.md', '.github/RELEASE_TEMPLATE.md']) {
+    const doc = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    assert.match(doc, /Open Anyway/,
+      `${f} must tell macOS 15+ users to use System Settings > Privacy & Security`);
+    assert.match(doc, /System Settings/, `${f} must name where the bypass lives`);
+    assert.match(doc, /administrator|admin password/i,
+      `${f} must state that macOS 15+ asks for an admin password - "no admin needed" is only true of the install destination`);
+  }
+});

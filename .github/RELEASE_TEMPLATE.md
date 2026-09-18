@@ -2,14 +2,17 @@
 
 | You are on | Download | Then |
 |---|---|---|
-| **macOS** | `AE-MCP-Vision-__VERSION__-macOS.dmg` | Open it, double-click **Install AE MCP Vision** |
-| **Windows** | `AE-MCP-Vision-__VERSION__-Windows.exe` | Run it |
-| Already use ZXPInstaller | `ae-mcp-vision-__VERSION__.zxp` | Drag onto [ZXPInstaller](https://zxpinstaller.com/) |
+| **macOS** (recommended) | `ae-mcp-vision-__VERSION__.zxp` | Drag onto [ZXPInstaller](https://zxpinstaller.com/) — no security prompts |
+| **Windows** | `AE-MCP-Vision-__VERSION__-Windows.exe` | Run it, click through SmartScreen |
+| macOS, if you prefer a native installer | `AE-MCP-Vision-__VERSION__-macOS.dmg` | Four Gatekeeper steps and an admin password — see below |
 
 **Quit After Effects before installing.** It loads extensions at startup, so installing
 underneath a running copy leaves a half-loaded state that looks broken.
 
-No admin rights required. Everything installs into your own user folder.
+Everything installs into your own user folder. On **macOS 15 and later** you will still
+be asked for an administrator password to launch the unsigned installer — the `.zxp` via
+[ZXPInstaller](https://zxpinstaller.com/) avoids that and is the smoothest route on a
+modern Mac.
 
 ### Requirements
 
@@ -21,10 +24,18 @@ No admin rights required. Everything installs into your own user folder.
 
 The installers are **not code-signed**, so your operating system will object the first time:
 
-- **macOS:** right-click the installer app and choose **Open**, then **Open** again. After
-  that it runs normally. (Double-clicking shows a dead-end "cannot be verified" dialog.)
-- **Windows:** SmartScreen shows "Windows protected your PC" — click **More info**, then
-  **Run anyway**.
+- **macOS 15 (Sequoia) and later — this now costs four steps and an admin password.**
+  Apple removed the old right-click > Open bypass. You must: (1) try to open it once, so
+  macOS records the block; (2) go to **System Settings > Privacy & Security > Security**
+  and click **Open Anyway**; (3) click **Open Anyway** again in the confirmation; (4) enter
+  an **administrator username and password**.
+
+  If that is more than you want to deal with, **use the `.zxp` instead** — ZXPInstaller is
+  itself a notarized app, so the `.zxp` is data it reads rather than code Gatekeeper
+  evaluates, and none of the above applies.
+- **macOS 14 and earlier:** right-click the app > **Open**, then **Open** in the dialog.
+- **Windows:** SmartScreen shows *"Windows protected your PC"*. Click **More info** then
+  **Run anyway**. No admin password is required.
 
 This is expected for unsigned software and is not a warning about this specific download.
 If that bothers you, build from source instead — see the README.

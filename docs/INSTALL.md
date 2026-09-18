@@ -14,7 +14,10 @@ install rather than a pending one.
 
 ## Pick an installer
 
-Everything installs per-user. Nothing needs admin rights.
+Everything installs into your own user folder. On **macOS 15 and later**, though,
+*launching* an unsigned installer requires an administrator password even though the
+install itself does not — see below. The `.zxp` route avoids that entirely and is the
+path of least resistance on a modern Mac.
 
 | Platform | File | How |
 |---|---|---|
@@ -29,10 +32,18 @@ Downloads are on the [Releases page](../../releases).
 The installers are not code-signed, so your OS will object the first time. This is
 expected and is not specific to this download.
 
-- **macOS:** double-clicking shows a dead-end *"cannot be verified"* dialog. Instead
-  **right-click the app > Open**, then **Open** in the dialog. It runs normally after that.
+- **macOS 15 (Sequoia) and later — this now costs four steps and an admin password.**
+  Apple removed the old right-click > Open bypass. You must: (1) try to open it once, so
+  macOS records the block; (2) go to **System Settings > Privacy & Security > Security**
+  and click **Open Anyway**; (3) click **Open Anyway** again in the confirmation; (4) enter
+  an **administrator username and password**.
+
+  If that is more than you want to deal with, **use the `.zxp` instead** — ZXPInstaller is
+  itself a notarized app, so the `.zxp` is data it reads rather than code Gatekeeper
+  evaluates, and none of the above applies.
+- **macOS 14 and earlier:** right-click the app > **Open**, then **Open** in the dialog.
 - **Windows:** SmartScreen shows *"Windows protected your PC"*. Click **More info** then
-  **Run anyway**.
+  **Run anyway**. No admin password is required.
 
 Signing certificates that work with Adobe's tooling are, at present, largely unobtainable:
 since June 2023 CAs must keep code-signing keys on hardware tokens, while Adobe's
