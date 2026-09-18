@@ -28,7 +28,13 @@
     "lint": "node scripts/lint.mjs",
     "install:dev": "./scripts/cep-install.sh",
     "uninstall:dev": "./scripts/cep-install.sh --uninstall",
-    "package": "./scripts/build-zxp.sh"
+    "package": "./scripts/build-zxp.sh",
+    "install:dev:win": "powershell -ExecutionPolicy Bypass -File scripts/cep-install.ps1",
+    "uninstall:dev:win": "powershell -ExecutionPolicy Bypass -File scripts/cep-install.ps1 -Uninstall"
   },
-  "devDependencies": {}
+  "devDependencies": {},
+  "os": [
+    "darwin",
+    "win32"
+  ]
 }
