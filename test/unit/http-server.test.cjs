@@ -7,12 +7,13 @@ const { createServer } = require('../../cep/server/http-server.js');
 const stubHost = async (op) => ({ ok: true, result: { pong: true, aeVersion: 'stub', op } });
 
 async function withServer(fn, options = {}) {
+  // port 0 lets the OS choose, so parallel runs cannot collide.
   const app = createServer(stubHost, { port: 0, onLog: () => {}, ...options });
-  // port 0 lets the OS choose, so parallel test runs cannot collide.
-  await new Promise((resolve, reject) => {
-    app.server.once('error', reject);
-    app.server.listen(0, '127.0.0.1', resolve);
-  });
+  // Go through app.listen(), not server.listen(). The real path persists the
+  // token only after a successful bind; calling the raw listener skipped that
+  // and the token tests passed locally only because an earlier real run had
+  // left a file behind. CI's clean /tmp caught it.
+  await app.listen();
   const port = app.server.address().port;
   try { await fn({ port, token: app.token, app }); } finally { await app.close(); }
 }
@@ -133,4 +134,16 @@ test('a server that fails to bind does not clobber a working server\'s token', a
     assert.strictEqual(fs.readFileSync(first.tokenFile, 'utf8'), firstToken);
     assert.notStrictEqual(second.token, firstToken);
   });
+});
+
+test('port 0 means "let the OS choose" and is not coerced to the default', async () => {
+  await withServer(async ({ port }) => {
+    assert.notStrictEqual(port, 8791, 'port 0 must not fall through to DEFAULT_PORT');
+    assert.ok(port > 0);
+  });
+});
+
+test('an omitted port falls back to the default', () => {
+  const app = createServer(stubHost, { onLog: () => {} });
+  assert.strictEqual(app.port, 8791);
 });

@@ -91,7 +91,9 @@ function readBody(req, limitBytes = 5 * 1024 * 1024) {
  * @param {{port?:number, onLog?:(msg:string)=>void}} options
  */
 function createServer(callHost, options = {}) {
-  const port = options.port || DEFAULT_PORT;
+  // Not `options.port || DEFAULT_PORT`: port 0 is a legitimate request meaning
+  // "let the OS choose", and a falsy-zero check silently forced it to 8791.
+  const port = options.port === undefined || options.port === null ? DEFAULT_PORT : options.port;
   const log = options.onLog || (() => {});
   const introspect = options.introspect || (() => ({}));
 
