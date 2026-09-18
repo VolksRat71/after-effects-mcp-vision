@@ -57,6 +57,10 @@ var __mcp_captureOps = {
         if (time < 0 || time > comp.duration) {
             throw new Error("time " + time + "s outside comp duration (0-" + comp.duration + "s)");
         }
+        // Same off-by-one-frame trap as captureSequence: exactly duration is
+        // past the last renderable frame and yields an empty image.
+        var lastRenderable = Math.max(0, comp.duration - comp.frameDuration);
+        if (time > lastRenderable) { time = lastRenderable; }
         var frame = __mcp_captureOne(comp, time, args.fileName,
                                      Number(args.longEdge || 512), Number(args.timeoutMs || 10000));
         frame.compId = comp.id;
@@ -73,7 +77,14 @@ var __mcp_captureOps = {
         var comp = __mcp_resolveComp(args);
         var count = Math.max(2, Math.min(24, Number(args.count || 6)));
         var start = (args.startTime === undefined) ? 0 : Number(args.startTime);
-        var end = (args.endTime === undefined) ? comp.duration : Number(args.endTime);
+        /*
+         * The last renderable frame sits at duration - frameDuration. Sampling
+         * at exactly comp.duration is one frame past the end and renders empty,
+         * which shows up as a blank final cell in a contact sheet. Clamp so the
+         * caller gets the last real frame instead.
+         */
+        var lastFrameTime = Math.max(0, comp.duration - comp.frameDuration);
+        var end = (args.endTime === undefined) ? lastFrameTime : Math.min(Number(args.endTime), lastFrameTime);
         if (end <= start) { throw new Error("endTime must be greater than startTime"); }
 
         var prefix = String(args.prefix || "seq");
@@ -86,7 +97,7 @@ var __mcp_captureOps = {
         var frames = [], errors = [];
         for (var i = 0; i < count; i++) {
             var t = start + (step * i);
-            if (t > comp.duration) { t = comp.duration; }
+            if (t > lastFrameTime) { t = lastFrameTime; }
             try {
                 frames.push(__mcp_captureOne(comp, t, prefix + "_" + i + ".png", longEdge, timeoutMs));
             } catch (e) {

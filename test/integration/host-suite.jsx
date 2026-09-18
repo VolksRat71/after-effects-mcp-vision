@@ -202,6 +202,24 @@
             return s.frames.length;
         });
 
+        record("captureSequence never samples past the last renderable frame", function () {
+            // comp.duration itself is one frame past the end and renders empty.
+            var s = call("captureSequence", { compId: scratchCompId, count: 3,
+                                              startTime: 0, endTime: 999,
+                                              prefix: "suite_end", longEdge: 120 });
+            var comp = null;
+            var last = s.frames[s.frames.length - 1];
+            if (last.time >= 3) { throw new Error("sampled at " + last.time + "s, past the end"); }
+            return { lastSampledAt: last.time };
+        });
+
+        record("capture clamps a time at exactly duration", function () {
+            var c = call("capture", { compId: scratchCompId, time: 3,
+                                      fileName: "suite_end.png", longEdge: 120 });
+            if (c.time >= 3) { throw new Error("did not clamp: " + c.time); }
+            return c.time;
+        });
+
         record("captureIsolated restores solo state", function () {
             var before = call("tree", { compId: scratchCompId });
             var c = call("captureIsolated", { layerId: textLayerId, fileName: "suite_iso.png", longEdge: 160 });
