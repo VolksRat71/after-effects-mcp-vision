@@ -1,3 +1,9 @@
+// Must be set BEFORE requiring http-server, which resolves the token path at
+// module load. Without this the suite writes to (and deletes) the real token.
+process.env.AE_MCP_TOKEN_DIR = require('node:fs').mkdtempSync(
+  require('node:path').join(require('node:os').tmpdir(), 'ae-mcp-test-'),
+);
+
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

@@ -43,7 +43,13 @@ const DEFAULT_PORT = 8791;
  * It is 0600 in the user's own home, bound to loopback, and can be rotated
  * deliberately via rotateToken().
  */
-const TOKEN_DIR = path.join(os.homedir(), '.ae-mcp-vision');
+/*
+ * Overridable so tests never touch the real token. They previously wrote and
+ * deleted the live file, which silently invalidated the user's working client
+ * config on every `npm test` run - a test suite with side effects on real user
+ * state is a bug, not a quirk.
+ */
+const TOKEN_DIR = process.env.AE_MCP_TOKEN_DIR || path.join(os.homedir(), '.ae-mcp-vision');
 const TOKEN_FILE = path.join(TOKEN_DIR, 'token');
 
 function mintToken() {

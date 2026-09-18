@@ -1,3 +1,9 @@
+// Must be set BEFORE requiring http-server, which resolves the token path at
+// module load. Without this the suite writes to (and deletes) the real token.
+process.env.AE_MCP_TOKEN_DIR = require('node:fs').mkdtempSync(
+  require('node:path').join(require('node:os').tmpdir(), 'ae-mcp-test-'),
+);
+
 const test = require('node:test');
 const assert = require('node:assert');
 const net = require('node:net');
@@ -142,9 +148,28 @@ test('rotation produces a new token and persists it', () => {
   assert.strictEqual(fs.readFileSync(TOKEN_FILE, 'utf8').trim(), after);
 });
 
-test('the token lives in the home directory, not a temp dir that gets cleared', () => {
-  assert.ok(TOKEN_FILE.startsWith(os.homedir()),
-    'a temp-dir token would vanish on cleanup and break every saved config');
+test('the DEFAULT token location is the home directory, not a temp dir', () => {
+  // This suite redirects AE_MCP_TOKEN_DIR, so the default has to be checked in
+  // a clean child process. A temp-dir default would vanish on OS cleanup and
+  // silently break every saved client config.
+  const { execFileSync } = require('node:child_process');
+  const env = { ...process.env };
+  delete env.AE_MCP_TOKEN_DIR;
+  // The module path is passed as an argument rather than written inline, so a
+  // require() inside a string is not mistaken for a real dependency.
+  const modulePath = require('node:path').join(__dirname, '..', '..', 'cep', 'server', 'http-server.js');
+  const out = execFileSync(
+    process.execPath,
+    ['-e', 'process.stdout.write(require(process.argv[1]).TOKEN_FILE)', modulePath],
+    { env, encoding: 'utf8' },
+  );
+  assert.ok(out.startsWith(os.homedir()), `default token path was ${out}`);
+  assert.match(out, /\.ae-mcp-vision/);
+});
+
+test('AE_MCP_TOKEN_DIR redirects the token, which is what keeps tests off real state', () => {
+  assert.ok(process.env.AE_MCP_TOKEN_DIR);
+  assert.ok(TOKEN_FILE.startsWith(process.env.AE_MCP_TOKEN_DIR));
 });
 
 test('a server that fails to bind does not clobber a working server\'s token', async () => {
