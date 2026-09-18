@@ -406,6 +406,29 @@
                                           outputPath: "/tmp/nope.txt" }, "op_failed");
         });
 
+        /*
+         * Saving is tested WITHOUT touching the live project.
+         *
+         * project.save(file) rebinds app.project.file, so an earlier version of
+         * this test renamed the user's open project to a temp path - the same
+         * class of bug as a test suite deleting the real auth token. The save
+         * path is therefore exercised only for its guards, which reject before
+         * any write happens, and the successful-write path is left to
+         * verify-live.sh where a throwaway project can be used.
+         */
+        record("project save refuses a non-aep path", function () {
+            return expectFail("project", { command: "save", path: "/tmp/nope.txt" }, "op_failed");
+        });
+
+        record("project save refuses to clobber an existing file", function () {
+            var tmp = Folder.temp.fsName + "/__mcp_guard.aep";
+            var f = new File(tmp);
+            if (!f.exists) { f.open("w"); f.write("x"); f.close(); }
+            var code = expectFail("project", { command: "save", path: tmp }, "op_failed");
+            try { f.remove(); } catch (e) {}
+            return code;
+        });
+
         record("selection reads without throwing", function () { return call("selection").activeItemId; });
         record("diagnostics.problems runs", function () {
             var d = call("problems", { maxLayers: 50 });

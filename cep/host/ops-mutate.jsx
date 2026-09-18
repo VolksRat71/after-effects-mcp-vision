@@ -488,7 +488,9 @@ var __mcp_mutateOps = {
                 if (dest.exists && args.overwrite !== true) {
                     throw new Error("Refusing to overwrite existing file (pass overwrite:true): " + target);
                 }
-                p.saveAs(dest);
+                // Project has save([file]), NOT saveAs - that belongs to other
+                // Adobe apps. Calling saveAs throws "Function p.saveAs is undefined".
+                p.save(dest);
             } else {
                 p.save();
             }
