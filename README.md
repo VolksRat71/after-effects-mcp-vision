@@ -278,6 +278,22 @@ Re-copy it from the panel.
 is a modal dialog waiting behind the main window. Click OK, then file a bug —
 that is a real defect, not expected behaviour.
 
+## Credits
+
+This project started as a fork of
+[Dakkshin/after-effects-mcp](https://github.com/Dakkshin/after-effects-mcp),
+which established the idea of driving After Effects from an MCP client.
+
+v2 rewrote the transport and the tool surface: a CEP extension hosting the MCP
+server over HTTP instead of a panel polling JSON files, stable `Item.id` /
+`Layer.id` addressing instead of indices, and `ae_capture` so an agent can look
+at the frame it produced. The original copyright is retained below alongside the
+copyright for that work.
+
 ## Licence
 
 MIT — see [LICENSE](LICENSE).
+
+Copyright (c) 2025 Dakkshin, copyright (c) 2026 Nate Ryan. MIT requires the
+copyright notice to travel with the software, so both lines stay in any copy or
+substantial portion, including the packaged `.zxp` and the installers.

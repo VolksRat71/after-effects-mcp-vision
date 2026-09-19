@@ -34,6 +34,9 @@ AppMutex=
 [Files]
 Source: "..\..\cep\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; \
   Excludes: "*.log,.DS_Store,.debug"
+; MIT requires the notice to travel with every copy, and an installed
+; extension is a copy. This is a derivative of Dakkshin/after-effects-mcp.
+Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Registry]
 ; Unsigned extensions require PlayerDebugMode, set per CSXS major version.

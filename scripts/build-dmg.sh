@@ -28,6 +28,10 @@ mkdir -p "$APP/Contents/Resources/payload"
 ( cd "$ROOT/cep" && tar --exclude='.DS_Store' --exclude='*.log' --exclude='.debug' -cf - . ) \
   | ( cd "$APP/Contents/Resources/payload" && tar -xf - )
 
+# MIT requires the notice to travel with every copy, and an installer payload
+# is a copy. This is a derivative of Dakkshin/after-effects-mcp.
+cp "$ROOT/LICENSE" "$APP/Contents/Resources/payload/LICENSE"
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

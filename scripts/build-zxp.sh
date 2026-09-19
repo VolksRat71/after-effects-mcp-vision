@@ -32,6 +32,12 @@ mkdir -p "$STAGE"
 # never ship in a release package.
 ( cd "$SRC" && tar --exclude='.DS_Store' --exclude='*.log' --exclude='.debug' -cf - . ) | ( cd "$STAGE" && tar -xf - )
 
+# MIT requires the copyright notice to travel with "all copies or substantial
+# portions of the Software", and a packaged .zxp is a copy. This project is a
+# derivative of Dakkshin/after-effects-mcp, so shipping without the notice is a
+# licence breach, not a cosmetic omission.
+cp "$ROOT/LICENSE" "$STAGE/LICENSE"
+
 # Keep the manifest version in step with package.json so a released .zxp cannot
 # claim a version the code does not have.
 python3 - "$STAGE/CSXS/manifest.xml" "$VERSION" <<'PY'
