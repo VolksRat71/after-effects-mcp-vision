@@ -26,7 +26,8 @@ test('the tool surface is the eight documented tools', () => {
   assert.deepStrictEqual(
     TOOLS.map((t) => t.name).sort(),
     ['ae_animate', 'ae_capture', 'ae_compose', 'ae_diagnostics', 'ae_effects', 'ae_layers',
-     'ae_masks', 'ae_project', 'ae_query', 'ae_render', 'ae_set', 'ae_shapes', 'ae_timing'],
+     'ae_masks', 'ae_project', 'ae_query', 'ae_render', 'ae_set', 'ae_shapes', 'ae_template',
+     'ae_text', 'ae_timing'],
   );
 });
 
@@ -185,4 +186,55 @@ test('ae_render warns that it blocks', () => {
 test('ae_timing documents that startTime shifts in and out points', () => {
   const t = TOOLS.find((t) => t.name === 'ae_timing');
   assert.match(t.description, /startTime FIRST|shifts both/);
+});
+
+test('ae_shapes routes operator commands to shapeOps, create to shapes', async () => {
+  const host = stubHost();
+  const reg = createToolRegistry(host.fn);
+  await reg.callTool('ae_shapes', { command: 'create', kind: 'rect' });
+  await reg.callTool('ae_shapes', { command: 'addOperator', layerId: 1, kind: 'trim' });
+  await reg.callTool('ae_shapes', { command: 'listOperators', layerId: 1 });
+  assert.deepStrictEqual(host.calls.map((c) => c.op), ['shapes', 'shapeOps', 'shapeOps']);
+  assert.strictEqual(host.calls[1].args.command, 'add');
+  assert.strictEqual(host.calls[2].args.command, 'list');
+});
+
+test('ae_project splits lifecycle commands onto projectFile', async () => {
+  const host = stubHost();
+  const reg = createToolRegistry(host.fn);
+  await reg.callTool('ae_project', { command: 'createComp' });
+  await reg.callTool('ae_project', { command: 'open', path: '/x.aep' });
+  await reg.callTool('ae_project', { command: 'close' });
+  assert.deepStrictEqual(host.calls.map((c) => c.op), ['project', 'projectFile', 'projectFile']);
+});
+
+test('ae_render warns that AME cannot do alpha', () => {
+  const r = TOOLS.find((t) => t.name === 'ae_render');
+  assert.match(r.description, /CANNOT export alpha/i);
+  assert.match(r.description, /batch/);
+});
+
+test('ae_template states which property types are rejected', () => {
+  const t = TOOLS.find((t) => t.name === 'ae_template');
+  assert.match(t.description, /THREE-dimensional|3D/);
+  assert.match(t.description, /canAddToMotionGraphicsTemplate/);
+});
+
+test('ae_layers distinguishes point text from wrapping box text', () => {
+  const l = TOOLS.find((t) => t.name === 'ae_layers');
+  assert.match(l.description, /POINT text/);
+  assert.match(l.description, /createBoxText/);
+});
+
+test('ae_timing explains that layer motion blur needs the comp switch', () => {
+  const t = TOOLS.find((t) => t.name === 'ae_timing');
+  assert.match(t.description, /comp/i);
+  assert.match(t.description, /readMarkers/);
+});
+
+test('ae_text explains the per-letter vs per-word choice, which is the whole point', () => {
+  const t = TOOLS.find((t) => t.name === 'ae_text');
+  assert.match(t.description, /per-word/);
+  assert.match(t.description, /basedOn/);
+  assert.match(t.description, /typewriter/i);
 });

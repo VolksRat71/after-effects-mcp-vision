@@ -136,11 +136,14 @@ const TOOLS = [
       'existing layers by id. Creating a duplicate layer when one already exists is the most common ' +
       'way to make a mess of someone\'s project.\n\n' +
       'create* commands need a compId (or default to the active comp). Every other command needs a ' +
-      'layerId. reorder takes a 1-based target index; ids stay valid across reorders.',
+      'layerId. reorder takes a 1-based target index; ids stay valid across reorders.\n\n' +
+      'createText makes POINT text, which does not wrap. For a wrapping copy block use ' +
+      'createBoxText with a width and height. organise sets label colour, shy, guide-layer, solo ' +
+      'and comment - project hygiene that separates handoff-ready work from junk.',
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: ['createText', 'createSolid', 'createShape', 'createNull', 'delete', 'duplicate', 'rename', 'select', 'setEnabled', 'setLocked', 'reparent', 'reorder'] },
+        command: { type: 'string', enum: ['createText', 'createBoxText', 'createSolid', 'createShape', 'createNull', 'delete', 'duplicate', 'rename', 'select', 'setEnabled', 'setLocked', 'reparent', 'reorder', 'setCollapse', 'applyPreset', 'organise'] },
         compId: { type: 'number' },
         layerId: { type: 'number' },
         name: { type: 'string' },
@@ -153,6 +156,12 @@ const TOOLS = [
         enabled: { type: 'boolean' },
         locked: { type: 'boolean' },
         selected: { type: 'boolean' },
+        label: { type: 'number', description: 'organise: AE label colour index 0-16.' },
+        shy: { type: 'boolean' },
+        guideLayer: { type: 'boolean' },
+        solo: { type: 'boolean' },
+        comment: { type: 'string' },
+        path: { type: 'string', description: 'applyPreset: absolute path to a .ffx.' },
       },
       required: ['command'],
     },
@@ -185,7 +194,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: ['createComp', 'import', 'addToComp', 'deleteItem', 'save'] },
+        command: { type: 'string', enum: ['createComp', 'import', 'addToComp', 'deleteItem', 'save', 'new', 'open', 'close'] },
         name: { type: 'string' },
         width: { type: 'number' },
         height: { type: 'number' },
@@ -197,6 +206,7 @@ const TOOLS = [
         itemId: { type: 'number' },
         compId: { type: 'number' },
         overwrite: { type: 'boolean', description: 'save: required to overwrite an existing project file.' },
+        discardUnsaved: { type: 'boolean', description: 'new/open: required to abandon unsaved changes in the current project.' },
       },
       required: ['command'],
     },
@@ -276,11 +286,16 @@ const TOOLS = [
       'startTime shifts both by the same amount - so writing them in the other order silently ' +
       'gives a different result.\n\n' +
       'setComp can change duration, frameRate and size AFTER the comp exists. Markers attach to ' +
-      'a comp, or to a layer when you pass layerId.',
+      'a comp, or to a layer when you pass layerId, and readMarkers reads them back so you can ' +
+      'drive timing off markers a human placed.\n\n' +
+      'setTimeRemap enables time remapping - note AE auto-creates two keyframes and changes the ' +
+      'layer outPoint, both reported back. setMotionBlur switches it on for the layer AND the comp, ' +
+      'since the layer flag alone does nothing. separateDimensions splits Position into X and Y so ' +
+      'they can be eased independently.',
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: ['setLayer', 'setComp', 'addMarker'] },
+        command: { type: 'string', enum: ['setLayer', 'setComp', 'addMarker', 'readMarkers', 'setTimeRemap', 'setMotionBlur', 'separateDimensions'] },
         layerId: { type: 'number' },
         compId: { type: 'number' },
         inPoint: { type: 'number', description: 'Seconds. When the layer starts being visible.' },
@@ -295,6 +310,10 @@ const TOOLS = [
         workAreaDuration: { type: 'number' },
         time: { type: 'number', description: 'addMarker: where to place it.' },
         comment: { type: 'string', description: 'addMarker: the marker text.' },
+        protectedRegion: { type: 'boolean', description: 'addMarker: Responsive Design - Time. A protected region plays at original speed when an editor retimes the template downstream.' },
+        enabled: { type: 'boolean' },
+        enableForComp: { type: 'boolean', description: 'setMotionBlur: also switch it on for the comp. Default true - a layer\'s motion blur does nothing without it.' },
+        path: { type: 'array', items: { type: 'string' }, description: 'separateDimensions: defaults to Position.' },
       },
       required: ['command'],
     },
@@ -309,11 +328,23 @@ const TOOLS = [
       'that stretches the artwork. Solids can only scale.\n\n' +
       'The response includes a `paths` map of matchName paths to every animatable property it ' +
       'created - size, roundness, fill colour, stroke width, group transform - so you can drive ' +
-      'them with ae_set or ae_animate without reconstructing the vector tree yourself.',
+      'them with ae_set or ae_animate without reconstructing the vector tree yourself.\n\n' +
+      'addOperator adds the things that make a shape layer useful for motion graphics:\n' +
+      '- trim: the draw-on. Animate End 0 to 100. Offsetting Start behind End gives a travelling dash.\n' +
+      '- repeater: N copies with a per-copy transform. Animating its Offset is the native way to ' +
+      'stagger copies without expressions.\n' +
+      '- merge: boolean path ops. Note Lottie does not support these.\n' +
+      '- offset / round / wiggle / zigzag / twist: path distortions.\n\n' +
+      'It returns `paths` for the operator too, so you can keyframe Trim End directly. Placement ' +
+      'matters: a repeater above vs below the fill changes how gradients repeat, so operators go ' +
+      'inside the shape group by default, matching the UI.\n\n' +
+      'setDash dashes a stroke. Dashes are an INDEXED group, so a Dash element has to be added ' +
+      'before any value can be set - which is why naively setting a dash property never works. ' +
+      'Combine a dashed stroke with trim paths for progress rings.',
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: ['create'] },
+        command: { type: 'string', enum: ['create', 'addOperator', 'removeOperator', 'listOperators', 'setDash'] },
         compId: { type: 'number' },
         kind: { type: 'string', enum: ['rect', 'ellipse', 'polygon', 'star', 'path'] },
         name: { type: 'string' },
@@ -329,6 +360,17 @@ const TOOLS = [
         stroke: { type: 'array', items: { type: 'number' }, description: 'RGBA 0-1. Omit for no stroke.' },
         strokeWidth: { type: 'number' },
         position: { type: 'array', items: { type: 'number' } },
+        layerId: { type: 'number', description: 'Required by the operator commands.' },
+        kind: { type: 'string', description: 'Also: trim, repeater, merge, offset, round, wiggle, zigzag, twist for addOperator.' },
+        groupIndex: { type: 'number', description: 'Which shape group to add the operator into. Default 1.' },
+        start: { type: 'number', description: 'trim: Start %.' },
+        end: { type: 'number', description: 'trim: End %.' },
+        copies: { type: 'number', description: 'repeater: number of copies.' },
+        offset: { type: 'number', description: 'trim or repeater offset.' },
+        amount: { type: 'number' },
+        radius: { type: 'number' },
+        dash: { type: 'number', description: 'setDash: dash length.' },
+        gap: { type: 'number', description: 'setDash: gap length.' },
       },
       required: ['command'],
     },
@@ -373,11 +415,15 @@ const TOOLS = [
       'Format is not directly settable in After Effects scripting, so it comes from an output ' +
       'module template. Run listTemplates to see what this machine has; "Lossless" and the H.264 ' +
       'presets are usually present. Any other queued items are disabled during the render and ' +
-      'restored afterwards, so this never renders somebody else\'s queue.',
+      'restored afterwards, so this never renders somebody else\'s queue.\n\n' +
+      'batch takes N jobs and renders them in ONE pass - ad delivery is N comps by M formats, and ' +
+      'one blocking call per output does not scale. queueInAME hands off to Media Encoder for real ' +
+      'bitrate control, but note AME CANNOT export alpha: for RGB+Alpha use command render with an ' +
+      'alpha output module template.',
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: ['render', 'listTemplates'] },
+        command: { type: 'string', enum: ['render', 'batch', 'queueInAME', 'listTemplates'] },
         compId: { type: 'number' },
         outputPath: { type: 'string', description: 'Absolute path with a media extension.' },
         omTemplate: { type: 'string', description: 'Output module template name. Default: an H.264 preset.' },
@@ -385,6 +431,72 @@ const TOOLS = [
         startTime: { type: 'number' },
         endTime: { type: 'number' },
         overwrite: { type: 'boolean', description: 'Required to replace an existing file.' },
+        jobs: {
+          type: 'array',
+          description: 'batch: [{compId, outputPath, omTemplate?, rsTemplate?}]. Queued together and rendered in one pass.',
+          items: { type: 'object', properties: {
+            compId: { type: 'number' }, outputPath: { type: 'string' },
+            omTemplate: { type: 'string' }, rsTemplate: { type: 'string' },
+          }, required: ['compId', 'outputPath'] },
+        },
+        renderImmediately: { type: 'boolean', description: 'queueInAME: start AME rendering rather than just queueing.' },
+      },
+      required: ['command'],
+    },
+  },
+  {
+    name: 'ae_text',
+    description:
+      'Text animators and range selectors - how essentially every per-character and per-word ' +
+      'reveal is built. This is the most common text technique in commercial motion graphics and ' +
+      'is not reachable any other way.\n\n' +
+      'add creates an animator with the properties you name (opacity, position, scale, rotation, ' +
+      'tracking, blur, fillColor, charOffset) plus a range selector, and returns matchName `paths` ' +
+      'for the selector\'s Start / End / Offset. Animate those to run the reveal - ' +
+      'typically offset from -100 to 100, or start from 0 to 100.\n\n' +
+      '`basedOn` is the choice that matters: `characters` gives a per-letter reveal, `words` gives ' +
+      'per-word. Art direction asks for one or the other constantly and they look completely ' +
+      'different. A typewriter is properties:["opacity"], basedOn:"characters", shape:"square", ' +
+      'then animate start 0 to 100.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', enum: ['add', 'list', 'remove'] },
+        layerId: { type: 'number' },
+        name: { type: 'string' },
+        properties: {
+          type: 'array',
+          items: { type: 'string', enum: ['opacity', 'position', 'scale', 'rotation', 'tracking', 'blur', 'fillColor', 'charOffset'] },
+          description: 'What the animator changes. Default ["opacity"].',
+        },
+        basedOn: { type: 'string', enum: ['characters', 'charactersExcludingSpaces', 'words', 'lines'] },
+        shape: { type: 'string', enum: ['square', 'rampUp', 'rampDown', 'triangle', 'round', 'smooth'] },
+        units: { type: 'string', enum: ['percent', 'index'] },
+      },
+      required: ['command', 'layerId'],
+    },
+  },
+  {
+    name: 'ae_template',
+    description:
+      'Essential Graphics: expose properties so a downstream editor can change them, and export a ' +
+      '.mogrt. This is After Effects\' native answer to a parameterised template, and what a ' +
+      '.mogrt consumer actually interacts with.\n\n' +
+      'Only some property types can be exposed: single-value numerics, 2D points, angle, checkbox, ' +
+      'colour, source text, dropdown, media replacement. THREE-dimensional properties and paths are ' +
+      'rejected - exposing a 3D layer\'s Position will fail. expose pre-flights with ' +
+      'canAddToMotionGraphicsTemplate and reports why rather than silently doing nothing.\n\n' +
+      'Pair this with expression controls: apply a Slider Control via ae_effects, drive real ' +
+      'properties from it with an expression, then expose only the slider. That is the standard rig.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', enum: ['expose', 'listExposed', 'exportMogrt'] },
+        compId: { type: 'number' },
+        layerId: { type: 'number' },
+        path: { type: 'array', items: { type: 'string' }, description: 'expose: matchName path to the property.' },
+        name: { type: 'string', description: 'expose: display name shown to the editor. Default names are useless - set this.' },
+        overwrite: { type: 'boolean' },
       },
       required: ['command'],
     },
@@ -492,12 +604,27 @@ function createToolRegistry(callHost) {
     },
     ae_masks: (a) => host('masks', a).then(textContent),
     ae_timing: (a) => host('timing', a).then(textContent),
-    ae_shapes: (a) => host('shapes', a).then(textContent),
+    ae_shapes: (a) => {
+      const op = a.command === 'create' ? 'shapes' : 'shapeOps';
+      const args = op === 'shapeOps' ? { ...a, command: a.command.replace(/Operator$/, '').replace(/^add$/, 'add') } : a;
+      if (op === 'shapeOps') {
+        args.command = { addOperator: 'add', removeOperator: 'remove', listOperators: 'list', setDash: 'setDash' }[a.command] || a.command;
+      }
+      return host(op, args).then(textContent);
+    },
+    ae_template: (a) => host('template', a).then(textContent),
+    ae_text: (a) => host('textAnimator', a).then(textContent),
     ae_compose: (a) => host('compose', a).then(textContent),
     ae_render: (a) => host('render', a).then(textContent),
     ae_layers: (a) => host('layers', a).then(textContent),
     ae_effects: (a) => host('effects', a).then(textContent),
-    ae_project: (a) => host('project', a).then(textContent),
+    ae_project: (a) => {
+      // Lifecycle lives in its own host op; the rest stay on 'project'.
+      const lifecycle = { new: 'new', open: 'open', close: 'close' };
+      return lifecycle[a.command]
+        ? host('projectFile', a).then(textContent)
+        : host('project', a).then(textContent);
+    },
     ae_capture: capture,
     ae_diagnostics: (a) => host('problems', a).then(textContent),
   };

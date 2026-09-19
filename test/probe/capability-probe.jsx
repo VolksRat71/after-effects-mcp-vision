@@ -24,12 +24,42 @@
  * polyfill with it.
  */
 
+/*
+ * The host is loaded at TOP LEVEL, deliberately.
+ *
+ * $.evalFile defines symbols in the CALLING scope, not globally. Loading it
+ * inside main() made __mcp_exec visible only inside main(), while every probe
+ * function - defined out here - looked it up in a scope where it did not exist
+ * and reported "__mcp_exec is undefined" for 54 of 63 probes.
+ *
+ * Note also that the CEP extension's ExtendScript context is NOT shared with
+ * DoScriptFile: a bare `typeof __mcp_exec` is undefined even while the panel is
+ * running. The probe must load the host itself.
+ */
+$.evalFile(new File("__HOST_PATH__"));
+
 var RESULTS = [];
 var COMP = null;
+var COMP_ID = null;
+
+/*
+ * Re-fetch the comp by id rather than holding the object.
+ * exportAsMotionGraphicsTemplate invalidates the CompItem reference, and every
+ * probe after it then died with "Object is invalid" - the same class of bug as
+ * addProperty invalidating sibling property references.
+ */
+function refreshComp() {
+    if (COMP_ID !== null) {
+        var c = app.project.itemByID(COMP_ID);
+        if (c) { COMP = c; }
+    }
+    return COMP;
+}
 
 function probe(id, area, fn) {
     var r = { id: id, area: area };
     try {
+        refreshComp();
         var out = fn();
         r.verdict = out.verdict;
         r.evidence = out.evidence;
@@ -246,9 +276,16 @@ function probeTiming() {
     });
 
     probe("B7", "timing", function () {
-        return { verdict: hasOp("timeRemap") ? "PASS" : "FAIL",
-                 evidence: "op 'timeRemap' present: " + hasOp("timeRemap"),
-                 notes: "layer.timeRemapEnabled + 'ADBE Time Remapping' is fully scriptable; just not exposed" };
+        // Time remapping requires a source WITH DURATION. A solid has none, and
+        // AE rejects it outright - so probe against a precomp layer.
+        var inner = app.project.items.addComp("__b7inner__", 100, 100, 1, 4, 30);
+        var l = COMP.layers.add(inner);
+        l.name = "B7";
+        var r = call("timing", { command: "setTimeRemap", layerId: l.id, enabled: true });
+        return { verdict: (r.enabled && r.numKeys >= 2) ? "PASS" : "FAIL",
+                 evidence: "enabled=" + r.enabled + " autoKeys=" + r.numKeys +
+                           " outPoint " + r.outPoint.before + "->" + r.outPoint.after,
+                 notes: "enabling auto-creates two keys and changes outPoint; both are reported back" };
     });
 
     probe("B8", "timing", function () {
@@ -262,29 +299,30 @@ function probeTiming() {
     });
 
     probe("B9", "timing", function () {
-        call("timing", { command: "addMarker", compId: COMP.id, time: 2, comment: "beat" });
-        var canRead = hasOp("readMarkers");
-        var n = COMP.markerProperty.numKeys;
-        return { verdict: canRead ? "PASS" : "FAIL",
-                 evidence: "wrote marker (comp now has " + n + "); read-back op present: " + canRead,
-                 notes: "write-only. An agent cannot drive timing off existing markers it did not create." };
+        call("timing", { command: "addMarker", compId: COMP.id, time: 2, comment: "beat", protectedRegion: true });
+        var back = call("timing", { command: "readMarkers", compId: COMP.id });
+        var found = null;
+        for (var i = 0; i < back.markers.length; i++) { if (back.markers[i].comment === "beat") { found = back.markers[i]; } }
+        return { verdict: found ? "PASS" : "FAIL",
+                 evidence: "read back " + back.count + " marker(s); 'beat' at t=" +
+                           (found ? found.time + " protectedRegion=" + found.protectedRegion : "NOT FOUND"),
+                 notes: "protectedRegion is Responsive Design - Time, so a retimed template keeps its intro intact" };
     });
 
     probe("B10", "timing", function () {
         var l = mkSolid("B10", 50, 50);
-        var p = l.property("ADBE Transform Group").property("ADBE Position");
-        var supported = (typeof p.dimensionsSeparated !== "undefined");
-        return { verdict: hasOp("separateDimensions") ? "PASS" : "FAIL",
-                 evidence: "AE supports dimensionsSeparated: " + supported + "; op exposed: " + hasOp("separateDimensions") };
+        var r = call("timing", { command: "separateDimensions", layerId: l.id });
+        return { verdict: r.separated ? "PASS" : "FAIL",
+                 evidence: "Position dimensionsSeparated=" + r.separated,
+                 notes: "required to ease X and Y independently" };
     });
 
     probe("B11", "timing", function () {
         var l = mkSolid("B11", 50, 50);
-        var settable = false;
-        try { l.motionBlur = true; settable = l.motionBlur; } catch (e) {}
-        return { verdict: hasOp("motionBlur") ? "PASS" : "FAIL",
-                 evidence: "AE accepts layer.motionBlur=" + settable + "; op exposed: " + hasOp("motionBlur"),
-                 notes: "near-universal on commercial work, commonly forgotten by automation" };
+        var r = call("timing", { command: "setMotionBlur", layerId: l.id, enabled: true });
+        return { verdict: (r.layerMotionBlur && r.compMotionBlur) ? "PASS" : "FAIL",
+                 evidence: "layer=" + r.layerMotionBlur + " comp=" + r.compMotionBlur,
+                 notes: "the layer flag alone does nothing; the comp switch is set too" };
     });
 
     probe("B12", "timing", function () {
@@ -325,36 +363,49 @@ function probeText() {
     });
 
     probe("C3", "text", function () {
-        var boxable = (typeof COMP.layers.addBoxText === "function");
-        var r = opAccepts("layers", { compId: COMP.id, command: "createBoxText", text: "wrap me", width: 400, height: 200 });
-        return { verdict: r.ok ? "PASS" : "FAIL",
-                 evidence: "AE has addBoxText: " + boxable + "; createBoxText command accepted: " + r.ok +
-                           (r.error ? " (" + r.error.code + ")" : ""),
-                 notes: "point text only. Wrapping copy blocks are not expressible." };
+        var r = call("layers", { compId: COMP.id, command: "createBoxText",
+                                 text: "a longer sentence that should wrap inside its box",
+                                 width: 300, height: 200, name: "C3" });
+        var lay = app.project.layerByID(r.id);
+        var td = lay.property("ADBE Text Properties").property("ADBE Text Document").value;
+        return { verdict: (r.boxSize && td.boxText) ? "PASS" : "FAIL",
+                 evidence: "box text created " + (r.boxSize ? r.boxSize.join("x") : "?") +
+                           ", TextDocument.boxText=" + td.boxText };
     });
 
     probe("C4", "text", function () {
         var t = mkText("Animate me", "C4");
-        // Can the shipped surface build an animator? propertyKeys can SEE the
-        // group, but addProperty is what creates one, and no op does that.
-        var grp = t.property("ADBE Text Properties").property("ADBE Text Animators");
-        var visible = (grp !== null);
-        var canAdd = hasOp("textAnimator");
-        return { verdict: canAdd ? "PASS" : "FAIL",
-                 evidence: "animator group visible to propertyKeys: " + visible + "; op to create one: " + canAdd,
-                 notes: "per-character reveals are the single most common text technique in this work" };
+        var a = call("textAnimator", { command: "add", layerId: t.id,
+                                       properties: ["opacity", "position"], name: "Reveal" });
+        // The returned selector path must actually drive the reveal.
+        var k = call("keyframes", { layerId: t.id, path: a.paths.offset,
+                                    add: [{ time: 0, value: -100 }, { time: 1, value: 100 }] });
+        return { verdict: (a.added.length === 2 && k.numKeys === 2) ? "PASS" : "FAIL",
+                 evidence: "animator '" + a.animator + "' with " + a.added.join("+") +
+                           "; keyframed selector Offset -> numKeys=" + k.numKeys };
     });
 
     probe("C5", "text", function () {
-        return { verdict: hasOp("textAnimator") ? "REVIEW" : "FAIL",
-                 evidence: "no animator op, so Based On=Words is unreachable",
-                 notes: "'per word' vs 'per letter' is a routine art-direction request" };
+        var t = mkText("one two three four", "C5");
+        var a = call("textAnimator", { command: "add", layerId: t.id,
+                                       properties: ["opacity"], basedOn: "words", name: "PerWord" });
+        // Based On lives in the nested Range Advanced group; the op reports back
+        // what AE actually stored so this does not have to trust the request.
+        return { verdict: (a.basedOnVerified === 3) ? "PASS" : "FAIL",
+                 evidence: "requested basedOn=" + a.basedOn + "; AE stored range type " +
+                           a.basedOnVerified + " (3=Words)" };
     });
 
     probe("C6", "text", function () {
-        return { verdict: hasOp("textAnimator") ? "REVIEW" : "FAIL",
-                 evidence: "typewriter needs an opacity animator + square range selector",
-                 notes: "could also be faked by keyframing sourceText per frame, which is worse and larger" };
+        var t = mkText("TYPEWRITER", "C6");
+        var a = call("textAnimator", { command: "add", layerId: t.id, properties: ["opacity"],
+                                       basedOn: "characters", shape: "square", name: "Type" });
+        call("set", { writes: [{ layerId: t.id, path: a.paths.opacity, value: 0 }] });
+        var k = call("keyframes", { layerId: t.id, path: a.paths.start,
+                                    add: [{ time: 0, value: 0 }, { time: 1.5, value: 100 }] });
+        return { verdict: k.numKeys === 2 ? "PASS" : "FAIL",
+                 evidence: "opacity-0 animator + square selector, Start keyframed 0->100, numKeys=" + k.numKeys,
+                 notes: "the standard typewriter, not a per-frame sourceText hack" };
     });
 
     probe("C7", "text", function () {
@@ -396,25 +447,30 @@ function probeShapes() {
 
     probe("D2", "shapes", function () {
         var r = call("shapes", { command: "create", compId: COMP.id, kind: "rect", width: 200, height: 200 });
-        var sh = app.project.layerByID(r.id);
-        var contents = sh.property("ADBE Root Vectors Group").property(1).property("ADBE Vectors Group");
-        var canAdd = false, why = "";
-        try { canAdd = contents.canAddProperty("ADBE Vector Filter - Trim"); } catch (e) { why = String(e); }
-        return { verdict: hasOp("shapeFilter") ? "PASS" : "FAIL",
-                 evidence: "AE canAddProperty(Trim)=" + canAdd + "; op to add one: " + hasOp("shapeFilter") + " " + why,
-                 notes: "draw-on is P0 for this kind of work and is fully scriptable - purely a missing tool" };
+        var t = call("shapeOps", { command: "add", layerId: r.id, kind: "trim", start: 0, end: 100 });
+        // The returned path must actually drive the draw-on.
+        var endPath = t.paths["End"] || t.paths["end"];
+        var k = endPath ? call("keyframes", { layerId: r.id, path: endPath,
+                    add: [{ time: 0, value: 0 }, { time: 1, value: 100 }] }) : null;
+        return { verdict: (k && k.numKeys === 2) ? "PASS" : "FAIL",
+                 evidence: "trim added in " + t.placedIn + "; keyframed End via " +
+                           (endPath ? endPath.join(" > ") : "NO PATH") + " -> numKeys=" + (k ? k.numKeys : 0) };
     });
 
     probe("D3", "shapes", function () {
-        return { verdict: hasOp("shapeFilter") ? "PASS" : "FAIL",
-                 evidence: "no op adds 'ADBE Vector Filter - Repeater'",
-                 notes: "repeater Offset is the native way to stagger copies without expressions" };
+        var r = call("shapes", { command: "create", compId: COMP.id, kind: "ellipse", width: 40, height: 40 });
+        var rep = call("shapeOps", { command: "add", layerId: r.id, kind: "repeater", copies: 6 });
+        return { verdict: rep.matchName ? "PASS" : "FAIL",
+                 evidence: "repeater added with copies applied: " + rep.appliedValues.join(",") +
+                           "; drivable paths: " + (function(){var n=[];for(var k in rep.paths)n.push(k);return n.slice(0,5).join(", ");})() };
     });
 
     probe("D4", "shapes", function () {
-        return { verdict: hasOp("shapeFilter") ? "PASS" : "FAIL",
-                 evidence: "no op adds 'ADBE Vector Filter - Merge'",
-                 notes: "also unsupported by Lottie, so worth flagging at generation time" };
+        var r = call("shapes", { command: "create", compId: COMP.id, kind: "rect", width: 60, height: 60 });
+        var m = call("shapeOps", { command: "add", layerId: r.id, kind: "merge" });
+        return { verdict: m.matchName ? "PASS" : "FAIL",
+                 evidence: "merge paths added: " + m.matchName,
+                 notes: "unsupported by Lottie - worth flagging at generation time if the target is Lottie" };
     });
 
     probe("D5", "shapes", function () {
@@ -438,9 +494,19 @@ function probeShapes() {
     });
 
     probe("D6", "shapes", function () {
-        return { verdict: hasOp("shapeFilter") ? "PASS" : "FAIL",
-                 evidence: "stroke dashes ('ADBE Vector Stroke Dashes') not exposed",
-                 notes: "progress rings = ellipse + trim paths + dash + round cap" };
+        var r = call("shapes", { command: "create", compId: COMP.id, kind: "ellipse",
+                                 width: 100, height: 100, stroke: [1,1,1,1], strokeWidth: 6 });
+        var sh = app.project.layerByID(r.id);
+        var contents = sh.property("ADBE Root Vectors Group").property(1).property("ADBE Vectors Group");
+        var strokeProp = null;
+        for (var i = 1; i <= contents.numProperties; i++) {
+            if (contents.property(i).matchName === "ADBE Vector Graphic - Stroke") { strokeProp = contents.property(i); }
+        }
+        var d = call("shapeOps", { command: "setDash", layerId: r.id, dash: 12, gap: 8 });
+        return { verdict: d.elements >= 2 ? "PASS" : "FAIL",
+                 evidence: "dash elements created: " + d.elements + "; drivable: " +
+                           (function(){var n=[];for(var k in d.paths)n.push(k);return n.join(", ");})(),
+                 notes: "dashes are an INDEXED group - a Dash element must be added before any value can be set" };
     });
 
     probe("D7", "shapes", function () {
@@ -557,18 +623,28 @@ function probeTemplating() {
 
     probe("F2", "templating", function () {
         var l = mkSolid("F2", 100, 100);
-        var op = l.property("ADBE Transform Group").property("ADBE Opacity");
-        var can = false, err = "";
-        try { can = op.canAddToMotionGraphicsTemplate(COMP); } catch (e) { err = String(e); }
-        return { verdict: hasOp("template") ? "PASS" : "FAIL",
-                 evidence: "AE canAddToMotionGraphicsTemplate(Opacity)=" + can + " " + err + "; op exposed: " + hasOp("template"),
-                 notes: "fully scriptable and unexposed - the native answer to parameterised templates" };
+        var r = call("template", { command: "expose", compId: COMP.id, layerId: l.id,
+                                   path: ["ADBE Transform Group", "ADBE Opacity"], name: "Card Opacity" });
+        var listed = call("template", { command: "listExposed", compId: COMP.id });
+        // 3D properties must be refused, not silently dropped.
+        call("compose", { command: "set3D", layerId: l.id, enabled: true });
+        var threeD = opAccepts("template", { command: "expose", compId: COMP.id, layerId: l.id,
+                                             path: ["ADBE Transform Group", "ADBE Orientation"] });
+        return { verdict: (r.controllerCount >= 1) ? "PASS" : "FAIL",
+                 evidence: "exposed as 'Card Opacity', controllerCount=" + listed.controllerCount +
+                           "; a 3D property is refused: " + (!threeD.ok) };
     });
 
     probe("F3", "templating", function () {
-        var can = (typeof COMP.exportAsMotionGraphicsTemplate === "function");
-        return { verdict: hasOp("template") ? "PASS" : "FAIL",
-                 evidence: "AE has exportAsMotionGraphicsTemplate: " + can + "; op exposed: " + hasOp("template") };
+        var bad = opAccepts("template", { command: "exportMogrt", compId: COMP.id, path: "/tmp/x.txt" });
+        var rejectsExt = (!bad.ok && String(bad.error.message).indexOf(".mogrt") !== -1);
+        var out = Folder.temp.fsName + "/__probe_export.mogrt";
+        var f = new File(out); if (f.exists) { f.remove(); }
+        var r = call("template", { command: "exportMogrt", compId: COMP.id, path: out, overwrite: true });
+        var made = (new File(out)).exists;
+        if (made) { (new File(out)).remove(); }
+        return { verdict: made ? "PASS" : "REVIEW",
+                 evidence: "exported a .mogrt: " + made + "; wrong extension rejected: " + rejectsExt };
     });
 
     probe("F4", "templating", function () {
@@ -579,43 +655,46 @@ function probeTemplating() {
     });
 
     probe("F5", "templating", function () {
-        var l = mkSolid("F5", 100, 100);
-        var settable = false;
-        try { l.collapseTransformation = true; settable = l.collapseTransformation; } catch (e) {}
-        return { verdict: hasOp("collapse") ? "PASS" : "FAIL",
-                 evidence: "AE accepts collapseTransformation=" + settable + "; op exposed: " + hasOp("collapse"),
-                 notes: "affects how nested vectors scale - a real quality issue on resized formats" };
+        var a = mkSolid("F5a", 40, 40);
+        var pre = call("compose", { command: "precompose", compId: COMP.id, layerIds: [a.id], name: "__f5__" });
+        var r = call("layers", { command: "setCollapse", layerId: pre.layerInParent.id, enabled: true });
+        return { verdict: r.collapseTransformation ? "PASS" : "FAIL",
+                 evidence: "collapseTransformation=" + r.collapseTransformation };
     });
 
     probe("F6", "templating", function () {
         var l = mkSolid("F6", 100, 100);
-        return { verdict: hasOp("applyPreset") ? "PASS" : "FAIL",
-                 evidence: "AE has applyPreset: " + (typeof l.applyPreset === "function") +
-                           "; op exposed: " + hasOp("applyPreset") };
+        // No .ffx to hand it, so probe that the command exists and rejects a
+        // missing file rather than silently doing nothing.
+        var r = opAccepts("layers", { command: "applyPreset", layerId: l.id, path: "/nope/missing.ffx" });
+        var rejected = (!r.ok && r.error && r.error.message.indexOf("No preset") !== -1);
+        return { verdict: rejected ? "REVIEW" : "FAIL",
+                 evidence: "applyPreset command exists and rejects a missing file: " + rejected,
+                 notes: "cannot fully verify without a .ffx on this machine" };
     });
 
     probe("F7", "templating", function () {
         var l = mkSolid("F7", 50, 50);
-        var fields = { label: false, shy: false, guideLayer: false, locked: false };
-        try { l.label = 9; fields.label = (l.label === 9); } catch (e) {}
-        try { l.shy = true; fields.shy = l.shy; } catch (e) {}
-        try { l.guideLayer = true; fields.guideLayer = l.guideLayer; } catch (e) {}
-        var folder = (typeof app.project.items.addFolder === "function");
-        return { verdict: hasOp("organise") ? "PASS" : "FAIL",
-                 evidence: "AE settable label/shy/guide=" + fields.label + "/" + fields.shy + "/" + fields.guideLayer +
-                           "; addFolder=" + folder + "; op exposed: " + hasOp("organise"),
-                 notes: "project hygiene separates handoff-ready work from junk; only rename+lock are exposed" };
+        var r = call("layers", { command: "organise", layerId: l.id,
+                                 label: 9, shy: true, guideLayer: true, comment: "probe" });
+        var c = r.changed;
+        var all = (c.label === 9 && c.shy === true && c.guideLayer === true && c.comment === "probe");
+        return { verdict: all ? "PASS" : "FAIL",
+                 evidence: "label=" + c.label + " shy=" + c.shy + " guide=" + c.guideLayer + " comment='" + c.comment + "'",
+                 notes: "project folders are still not exposed - only layer-level hygiene" };
     });
 
     probe("F8", "templating", function () {
-        var r = opAccepts("project", { command: "newProject" });
-        var hasNew = (typeof app.newProject === "function");
-        var hasOpen = (typeof app.open === "function");
-        return { verdict: r.ok ? "PASS" : "FAIL",
-                 evidence: "AE has newProject=" + hasNew + " open=" + hasOpen +
-                           "; project command 'newProject' accepted: " + r.ok +
-                           (r.error ? " (" + r.error.code + ")" : ""),
-                 notes: "save only. Blocks 'open template, fill, render, close' - how ad variants are produced." };
+        // Probe the GUARD, not the action - actually opening a project mid-probe
+        // would destroy the probe comp and everything after it.
+        var guarded = opAccepts("projectFile", { command: "open", path: "/definitely/not/here.aep" });
+        var refusesMissing = (!guarded.ok && guarded.error.message.indexOf("No project at") !== -1);
+        var dirtyGuard = opAccepts("projectFile", { command: "new" });
+        var refusesUnsaved = (!dirtyGuard.ok && dirtyGuard.error.message.indexOf("unsaved") !== -1);
+        return { verdict: refusesMissing ? "PASS" : "FAIL",
+                 evidence: "open rejects a missing path: " + refusesMissing +
+                           "; new refuses to discard unsaved work: " + refusesUnsaved,
+                 notes: "new/open/close exist; the destructive paths are guarded behind discardUnsaved" };
     });
 }
 
@@ -650,16 +729,26 @@ function probeOutput() {
     });
 
     probe("G4", "output", function () {
-        var can = (typeof app.project.renderQueue.queueInAME === "function");
-        return { verdict: hasOp("queueInAME") ? "PASS" : "FAIL",
-                 evidence: "AE has queueInAME: " + can + "; op exposed: " + hasOp("queueInAME"),
-                 notes: "AME gives real bitrate control; direct-from-RQ H.264 is larger and less efficient" };
+        // Do not actually launch Media Encoder during a probe run.
+        var exposed = hasOp("render") && (function () {
+            var r = opAccepts("render", { command: "queueInAME", compId: -1 });
+            // an unknown-command error means it is not wired; any other error means it is
+            return !(r.error && String(r.error.message).indexOf("Unknown render command") !== -1);
+        })();
+        return { verdict: exposed ? "PASS" : "FAIL",
+                 evidence: "queueInAME command wired: " + exposed + " (not invoked - it would launch AME)",
+                 notes: "AME cannot export alpha; use command render for RGB+Alpha" };
     });
 
     probe("G5", "output", function () {
-        return { verdict: hasOp("renderBatch") ? "PASS" : "FAIL",
-                 evidence: "render takes one compId per call; no batch op",
-                 notes: "ad delivery is N comps x M formats; one-at-a-time means N*M blocking calls" };
+        // Validate the batch contract without rendering: an empty jobs array
+        // must be rejected, and a bad job must be reported per-item.
+        var empty = opAccepts("render", { command: "batch", jobs: [] });
+        var wired = !(empty.error && String(empty.error.message).indexOf("Unknown render command") !== -1);
+        var rejectsEmpty = (!empty.ok && String(empty.error.message).indexOf("requires a jobs array") !== -1);
+        return { verdict: (wired && rejectsEmpty) ? "PASS" : "FAIL",
+                 evidence: "batch wired: " + wired + "; rejects an empty job list: " + rejectsEmpty +
+                           " (not rendered - a real batch blocks for minutes)" };
     });
 
     probe("G6", "output", function () {
@@ -740,8 +829,12 @@ function probeCrossCutting() {
         app.beginSuppressDialogs();
         suppressed = true;
 
-        // Load the SHIPPED host so probes exercise the real tool surface.
-        $.evalFile(new File("__HOST_PATH__"));
+        // Host was loaded at top level. Fail loudly if that did not work,
+        // rather than reporting 60 misleading FAILs.
+        if (typeof __mcp_exec !== "function") {
+            throw new Error("host did not load: __mcp_exec is " + (typeof __mcp_exec));
+        }
+        out.hostOps = (function () { var n = 0; for (var k in __mcp_ops) { n++; } return n; })();
         out.aeVersion = app.version;
         out.expressionEngine = app.project.expressionEngine;
 
@@ -757,6 +850,7 @@ function probeCrossCutting() {
         } else {
             app.beginUndoGroup("capability probe");
             COMP = app.project.items.addComp("__probe__", 1920, 1080, 1, 10, 30);
+            COMP_ID = COMP.id;
 
             probeLayout();
             probeTiming();

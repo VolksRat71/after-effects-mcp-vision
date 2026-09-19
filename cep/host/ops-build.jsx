@@ -61,9 +61,55 @@ var __mcp_buildOps = {
             if (args.workAreaDuration !== undefined) { comp.workAreaDuration = Number(args.workAreaDuration); }
             return __mcp_itemSummary(comp);
         }
+        if (cmd === "setTimeRemap") {
+            var rl = __mcp_layerById(args.layerId);
+            // Enabling auto-creates two keys and changes outPoint - surface both
+            // so a caller is not surprised by a layer that suddenly got longer.
+            var outBefore = rl.outPoint;
+            rl.timeRemapEnabled = (args.enabled !== false);
+            var tr = rl.timeRemapEnabled ? rl.property("ADBE Time Remapping") : null;
+            return { layerId: rl.id, enabled: rl.timeRemapEnabled,
+                     numKeys: tr ? tr.numKeys : 0,
+                     outPoint: { before: outBefore, after: rl.outPoint },
+                     path: ["ADBE Time Remapping"] };
+        }
+        if (cmd === "setMotionBlur") {
+            var ml = __mcp_layerById(args.layerId);
+            ml.motionBlur = (args.enabled !== false);
+            var mc = ml.containingComp;
+            // A layer's motion blur does nothing unless the comp switch is on.
+            if (args.enableForComp !== false) { mc.motionBlur = true; }
+            return { layerId: ml.id, layerMotionBlur: ml.motionBlur, compMotionBlur: mc.motionBlur };
+        }
+        if (cmd === "separateDimensions") {
+            var sl = __mcp_layerById(args.layerId);
+            var sp = __mcp_propByPath(sl, args.path || ["ADBE Transform Group", "ADBE Position"]);
+            if (sp.dimensionsSeparated === undefined) { throw new Error("Property cannot separate dimensions"); }
+            sp.dimensionsSeparated = (args.enabled !== false);
+            return { layerId: sl.id, separated: sp.dimensionsSeparated };
+        }
+        if (cmd === "readMarkers") {
+            var target, where;
+            if (args.layerId !== undefined && args.layerId !== null) {
+                target = __mcp_layerById(args.layerId).property("ADBE Marker"); where = "layer";
+            } else {
+                target = __mcp_resolveComp(args).markerProperty; where = "comp";
+            }
+            var out = [];
+            for (var m = 1; m <= target.numKeys; m++) {
+                var mv = target.keyValue(m);
+                out.push({ index: m, time: target.keyTime(m), comment: mv.comment,
+                           duration: mv.duration, protectedRegion: mv.protectedRegion,
+                           label: mv.label, chapter: mv.chapter });
+            }
+            return { on: where, count: out.length, markers: out };
+        }
         if (cmd === "addMarker") {
             var mv = new MarkerValue(String(args.comment || ""));
             if (args.duration !== undefined) { mv.duration = Number(args.duration); }
+            // Responsive Design - Time: a protected region plays at original
+            // speed when an editor retimes the template downstream.
+            if (args.protectedRegion) { mv.protectedRegion = true; }
             var target, where;
             if (args.layerId !== undefined && args.layerId !== null) {
                 target = __mcp_layerById(args.layerId).property("ADBE Marker"); where = "layer";
@@ -194,6 +240,157 @@ var __mcp_buildOps = {
         return summary;
     },
 
+    /*
+     * Shape operators - trim paths, repeater, merge, offset, round corners,
+     * wiggle. These are what make a shape layer useful for motion graphics;
+     * without them ae_shapes only produces static geometry.
+     *
+     * Same re-fetch discipline as shapes(): addProperty invalidates references
+     * held to siblings.
+     */
+    shapeOps: function (args) {
+        var cmd = args.command;
+        var layer = __mcp_layerById(args.layerId);
+        var root = layer.property("ADBE Root Vectors Group");
+        if (!root) { throw new Error("Layer " + layer.id + " is not a shape layer"); }
+
+        if (cmd === "list") {
+            var found = [];
+            for (var i = 1; i <= root.numProperties; i++) {
+                found.push({ index: i, name: root.property(i).name, matchName: root.property(i).matchName });
+            }
+            return { layerId: layer.id, contents: found };
+        }
+
+        var KIND = {
+            trim:    "ADBE Vector Filter - Trim",
+            repeater:"ADBE Vector Filter - Repeater",
+            merge:   "ADBE Vector Filter - Merge",
+            offset:  "ADBE Vector Filter - Offset",
+            round:   "ADBE Vector Filter - RC",
+            wiggle:  "ADBE Vector Filter - Roughen",
+            zigzag:  "ADBE Vector Filter - Zigzag",
+            twist:   "ADBE Vector Filter - Twist"
+        };
+
+        if (cmd === "add") {
+            var match = KIND[String(args.kind)];
+            if (!match) {
+                var ks = []; for (var k in KIND) { ks.push(k); }
+                throw new Error("kind must be one of: " + ks.join(", "));
+            }
+
+            /*
+             * Placement matters and is not cosmetic. A trim path must sit AFTER
+             * the path it trims but is conventionally added at the group level;
+             * a repeater placed above vs below a fill changes how gradients
+             * repeat. Default to the shape group so behaviour matches the UI.
+             */
+            var target = root;
+            var scope = "layer";
+            if (args.groupIndex !== undefined && args.groupIndex !== null) {
+                target = root.property(Number(args.groupIndex)).property("ADBE Vectors Group");
+                scope = "group " + args.groupIndex;
+            } else if (root.numProperties >= 1 && root.property(1).matchName === "ADBE Vector Group") {
+                target = root.property(1).property("ADBE Vectors Group");
+                scope = "group 1";
+            }
+
+            target.addProperty(match);
+            var added = target.property(target.numProperties);
+            if (args.name) { added.name = String(args.name); }
+
+            // Apply any starting values the caller gave, by friendly name.
+            var MAP = {
+                start: "ADBE Vector Trim Start", end: "ADBE Vector Trim End",
+                offset: (args.kind === "trim") ? "ADBE Vector Trim Offset" : "ADBE Vector Repeater Offset",
+                copies: "ADBE Vector Repeater Copies",
+                mode: (args.kind === "merge") ? "ADBE Vector Merge Type" : null,
+                amount: "ADBE Vector Offset Amount",
+                radius: "ADBE Vector RoundCorner Radius",
+                size: "ADBE Vector Roughen Size"
+            };
+            var applied = [];
+            for (var key in MAP) {
+                if (args[key] === undefined || args[key] === null || !MAP[key]) { continue; }
+                try { added.property(MAP[key]).setValue(Number(args[key])); applied.push(key); } catch (e) {}
+            }
+
+            // Hand back matchName paths so ae_set / ae_animate can drive it.
+            var base = [];
+            if (scope === "layer") { base = ["ADBE Root Vectors Group", added.name]; }
+            else {
+                base = ["ADBE Root Vectors Group", root.property(args.groupIndex || 1).name,
+                        "ADBE Vectors Group", added.name];
+            }
+            var paths = {};
+            for (var q = 1; q <= added.numProperties; q++) {
+                var child = added.property(q);
+                try { paths[child.name] = base.concat([child.matchName]); } catch (e) {}
+            }
+            return { layerId: layer.id, kind: args.kind, matchName: match, name: added.name,
+                     placedIn: scope, appliedValues: applied, paths: paths };
+        }
+
+        if (cmd === "setDash") {
+            /*
+             * Stroke dashes are an INDEXED group: you cannot simply set a value,
+             * you have to addProperty a Dash element first. That is why a naive
+             * "set the dash" never works.
+             */
+            var sgroup = root.property(Number(args.groupIndex || 1)).property("ADBE Vectors Group");
+            var stroke = null;
+            for (var i = 1; i <= sgroup.numProperties; i++) {
+                if (sgroup.property(i).matchName === "ADBE Vector Graphic - Stroke") { stroke = sgroup.property(i); }
+            }
+            if (!stroke) { throw new Error("Layer has no stroke to dash - create the shape with a stroke first"); }
+            var dashes = stroke.property("ADBE Vector Stroke Dashes");
+            if (!dashes) { throw new Error("Stroke has no Dashes group"); }
+
+            /*
+             * BOUNDED. `while (numProperties > 0) remove()` hangs forever if AE
+             * refuses the removal - and because AE is single threaded and this
+             * server lives inside it, an unbounded loop here freezes the entire
+             * application, not just the call. Never loop on a mutation without
+             * a ceiling and a progress check.
+             */
+            var guard = 0;
+            while (dashes.numProperties > 0 && guard < 32) {
+                var before = dashes.numProperties;
+                try { dashes.property(1).remove(); } catch (e) { break; }
+                if (dashes.numProperties >= before) { break; }  // made no progress
+                guard++;
+            }
+            dashes.addProperty("ADBE Vector Stroke Dash 1");
+            dashes.property(1).setValue(Number(args.dash || 10));
+            if (args.gap !== undefined) {
+                dashes.addProperty("ADBE Vector Stroke Gap 1");
+                dashes.property(2).setValue(Number(args.gap));
+            }
+            if (args.offset !== undefined) {
+                dashes.addProperty("ADBE Vector Stroke Offset");
+                dashes.property(dashes.numProperties).setValue(Number(args.offset));
+            }
+            var dpaths = {};
+            for (var q = 1; q <= dashes.numProperties; q++) {
+                dpaths[dashes.property(q).name] = ["ADBE Root Vectors Group",
+                    root.property(Number(args.groupIndex || 1)).name, "ADBE Vectors Group",
+                    stroke.name, "ADBE Vector Stroke Dashes", dashes.property(q).matchName];
+            }
+            return { layerId: layer.id, elements: dashes.numProperties, paths: dpaths };
+        }
+
+        if (cmd === "remove") {
+            var grp = (args.groupIndex !== undefined)
+                ? root.property(Number(args.groupIndex)).property("ADBE Vectors Group") : root;
+            var victim = grp.property(String(args.name));
+            if (!victim) { throw new Error("No shape operator named " + args.name); }
+            victim.remove();
+            return { layerId: layer.id, removed: String(args.name) };
+        }
+        throw new Error("Unknown shapeOps command: " + cmd);
+    },
+
     /* Composition structure: grouping, mattes, blend modes, parenting, 3D. */
     compose: function (args) {
         var cmd = args.command;
@@ -260,6 +457,205 @@ var __mcp_buildOps = {
     },
 
     /*
+     * Text animators and range selectors - how essentially every per-character
+     * and per-word reveal in this kind of work is built. Animating the range
+     * selector's Start/End/Offset is the whole technique.
+     */
+    textAnimator: function (args) {
+        var cmd = args.command;
+        var layer = __mcp_layerById(args.layerId);
+        var textProps = layer.property("ADBE Text Properties");
+        if (!textProps) { throw new Error("Layer " + layer.id + " is not a text layer"); }
+        var animators = textProps.property("ADBE Text Animators");
+
+        if (cmd === "list") {
+            var out = [];
+            for (var i = 1; i <= animators.numProperties; i++) {
+                var an = animators.property(i);
+                var props = an.property("ADBE Text Animator Properties");
+                var pnames = [];
+                for (var q = 1; q <= props.numProperties; q++) { pnames.push(props.property(q).matchName); }
+                out.push({ index: i, name: an.name, properties: pnames });
+            }
+            return { layerId: layer.id, count: out.length, animators: out };
+        }
+
+        if (cmd === "add") {
+            var PROPS = {
+                opacity:   "ADBE Text Opacity",
+                position:  "ADBE Text Position 3D",
+                scale:     "ADBE Text Scale 3D",
+                rotation:  "ADBE Text Rotation",
+                tracking:  "ADBE Text Tracking Amount",
+                blur:      "ADBE Text Blur",
+                fillColor: "ADBE Text Fill Color",
+                charOffset:"ADBE Text Character Offset"
+            };
+            var wanted = args.properties || ["opacity"];
+
+            animators.addProperty("ADBE Text Animator");
+            var an = animators.property(animators.numProperties);
+            if (args.name) { an.name = String(args.name); }
+            // Re-fetch after every add: addProperty invalidates siblings.
+            var propGroup = an.property("ADBE Text Animator Properties");
+
+            var added = [], rejected = [];
+            for (var w = 0; w < wanted.length; w++) {
+                var mn = PROPS[wanted[w]];
+                if (!mn) { rejected.push(wanted[w]); continue; }
+                try { propGroup.addProperty(mn); added.push(wanted[w]); }
+                catch (e) { rejected.push(wanted[w] + " (" + e + ")"); }
+            }
+
+            var selectors = an.property("ADBE Text Selectors");
+            selectors.addProperty("ADBE Text Selector");
+            var sel = selectors.property(selectors.numProperties);
+
+            /*
+             * Based On, Shape and Units live in a NESTED "Range Advanced" group,
+             * not on the selector itself - setting them directly on the selector
+             * silently does nothing, which is exactly what happened here until a
+             * probe enumerated the tree. Verified matchNames on AE 26.0x67:
+             *   ADBE Text Range Units / Range Type2 / Range Shape
+             *
+             * These are set WITHOUT a swallowing try/catch. A silently ignored
+             * "per word" is worse than an error, because the reveal just looks
+             * wrong and nothing reports why.
+             */
+            var adv = sel.property("ADBE Text Range Advanced");
+            if (!adv) { throw new Error("Range selector has no Advanced group"); }
+
+            var BASED = { characters: 1, charactersExcludingSpaces: 2, words: 3, lines: 4 };
+            if (args.basedOn) {
+                var b = BASED[String(args.basedOn)];
+                if (!b) { throw new Error("basedOn must be characters, charactersExcludingSpaces, words or lines"); }
+                adv.property("ADBE Text Range Type2").setValue(b);
+            }
+            // 1=Square, 2=Ramp Up, 3=Ramp Down, 4=Triangle, 5=Round, 6=Smooth
+            var SHAPE = { square: 1, rampUp: 2, rampDown: 3, triangle: 4, round: 5, smooth: 6 };
+            if (args.shape) {
+                var sp = SHAPE[String(args.shape)];
+                if (!sp) { throw new Error("shape must be square, rampUp, rampDown, triangle, round or smooth"); }
+                adv.property("ADBE Text Range Shape").setValue(sp);
+            }
+            if (args.units === "index") { adv.property("ADBE Text Range Units").setValue(2); }
+
+            var base = ["ADBE Text Properties", "ADBE Text Animators", an.name];
+            var selBase = base.concat(["ADBE Text Selectors", sel.name]);
+            var paths = {
+                start:  selBase.concat(["ADBE Text Percent Start"]),
+                end:    selBase.concat(["ADBE Text Percent End"]),
+                offset: selBase.concat(["ADBE Text Percent Offset"])
+            };
+            for (var a2 = 0; a2 < added.length; a2++) {
+                paths[added[a2]] = base.concat(["ADBE Text Animator Properties", PROPS[added[a2]]]);
+            }
+            return { layerId: layer.id, animator: an.name, added: added, rejected: rejected,
+                     basedOn: args.basedOn || "characters", shape: args.shape || "square",
+                     basedOnVerified: adv.property("ADBE Text Range Type2").value,
+                     paths: paths,
+                     hint: "animate paths.offset from -100 to 100, or paths.start 0 to 100, to run the reveal" };
+        }
+
+        if (cmd === "remove") {
+            var victim = animators.property(String(args.name));
+            if (!victim) { throw new Error("No animator named " + args.name); }
+            victim.remove();
+            return { layerId: layer.id, removed: String(args.name) };
+        }
+        throw new Error("Unknown textAnimator command: " + cmd);
+    },
+
+    /*
+     * Project lifecycle. Save existed; new/open/close did not, which blocked
+     * the "open a template, fill it, render, close" loop that ad variants are
+     * actually produced with.
+     */
+    projectFile: function (args) {
+        var cmd = args.command;
+        if (cmd === "new") {
+            if (app.project && app.project.dirty && args.discardUnsaved !== true) {
+                throw new Error("Current project has unsaved changes. Save it, or pass discardUnsaved:true.");
+            }
+            app.newProject();
+            return { created: true, numItems: app.project.numItems };
+        }
+        if (cmd === "open") {
+            var f = new File(String(args.path));
+            if (!f.exists) { throw new Error("No project at " + args.path); }
+            if (app.project && app.project.dirty && args.discardUnsaved !== true) {
+                throw new Error("Current project has unsaved changes. Save it, or pass discardUnsaved:true.");
+            }
+            app.open(f);
+            return { opened: app.project.file ? app.project.file.fsName : null,
+                     numItems: app.project.numItems };
+        }
+        if (cmd === "close") {
+            if (!app.project) { return { closed: false, reason: "no project open" }; }
+            var save = args.save === true;
+            app.project.close(save ? CloseOptions.SAVE_CHANGES : CloseOptions.DO_NOT_SAVE_CHANGES);
+            return { closed: true, saved: save };
+        }
+        throw new Error("Unknown projectFile command: " + cmd);
+    },
+
+    /*
+     * Essential Graphics. Fully scriptable and previously unexposed - this is
+     * AE's native answer to a parameterised template, and the thing a .mogrt
+     * consumer actually interacts with.
+     */
+    template: function (args) {
+        var cmd = args.command;
+        var comp = __mcp_resolveComp(args);
+
+        if (cmd === "expose") {
+            var layer = __mcp_layerById(args.layerId);
+            var prop = __mcp_propByPath(layer, args.path);
+            // Pre-flight: 3D properties and paths are rejected outright, and a
+            // property already exposed returns false from the add.
+            if (!prop.canAddToMotionGraphicsTemplate(comp)) {
+                throw new Error("This property type cannot be exposed (3D properties and paths are unsupported, " +
+                                "or it is already exposed)");
+            }
+            var ok = args.name
+                ? prop.addToMotionGraphicsTemplateAs(comp, String(args.name))
+                : prop.addToMotionGraphicsTemplate(comp);
+            if (!ok) { throw new Error("After Effects refused to expose that property"); }
+            return { compId: comp.id, layerId: layer.id, path: args.path,
+                     exposedAs: args.name || null,
+                     controllerCount: comp.motionGraphicsTemplateControllerCount };
+        }
+        if (cmd === "listExposed") {
+            var n = comp.motionGraphicsTemplateControllerCount;
+            var list = [];
+            for (var i = 1; i <= n; i++) {
+                try { list.push({ index: i, value: comp.getMotionGraphicsDataPropertyValue(i) }); }
+                catch (e) { list.push({ index: i, error: String(e) }); }
+            }
+            return { compId: comp.id, templateName: comp.motionGraphicsTemplateName,
+                     controllerCount: n, controllers: list };
+        }
+        if (cmd === "exportMogrt") {
+            if (!args.path) { throw new Error("exportMogrt requires path"); }
+            var target = String(args.path);
+            if (!/\.mogrt$/i.test(target)) { throw new Error("path must end in .mogrt: " + target); }
+            var dest = new File(target);
+            if (dest.exists && args.overwrite !== true) {
+                throw new Error("Refusing to overwrite (pass overwrite:true): " + target);
+            }
+            // Capture everything off `comp` BEFORE exporting: the export
+            // invalidates the CompItem reference, and touching comp.id
+            // afterwards throws "Object is invalid".
+            var cid = comp.id;
+            var cname = comp.name;
+            var done = comp.exportAsMotionGraphicsTemplate(args.overwrite === true, dest.fsName);
+            return { compId: cid, compName: cname, exported: done, path: dest.fsName,
+                     exists: (new File(dest.fsName)).exists };
+        }
+        throw new Error("Unknown template command: " + cmd);
+    },
+
+    /*
      * Render to a file through the render queue. Blocking: renderQueue.render()
      * does not return until the job is done, so the tool layer gives this call
      * a long timeout. Other queued items are disabled for the duration and
@@ -279,6 +675,68 @@ var __mcp_buildOps = {
             probe.remove();
             return out;
         }
+        if (cmd === "queueInAME") {
+            if (typeof rq.queueInAME !== "function") { throw new Error("This AE build has no queueInAME"); }
+            var aComp = __mcp_resolveComp(args);
+            var aItem = rq.items.add(aComp);
+            if (args.omTemplate) { aItem.outputModule(1).applyTemplate(String(args.omTemplate)); }
+            if (args.outputPath) { aItem.outputModule(1).file = new File(String(args.outputPath)); }
+            rq.queueInAME(args.renderImmediately === true);
+            return { compId: aComp.id, queued: true, renderImmediately: (args.renderImmediately === true),
+                     note: "AME cannot export alpha - use command 'render' for RGB+Alpha" };
+        }
+
+        if (cmd === "batch") {
+            /*
+             * Ad delivery is N comps x M formats. One blocking call per output
+             * means N*M round trips; this queues everything and renders once.
+             */
+            var jobs = args.jobs || [];
+            if (!jobs.length) { throw new Error("batch requires a jobs array"); }
+
+            var pausedB = [];
+            for (var q = 1; q <= rq.numItems; q++) {
+                if (rq.item(q).render) { pausedB.push(q); rq.item(q).render = false; }
+            }
+            var added = [], failures = [];
+            for (var j = 0; j < jobs.length; j++) {
+                try {
+                    var job = jobs[j];
+                    var jc = __mcp_compById(job.compId);
+                    var jf = new File(String(job.outputPath));
+                    if (jf.exists && args.overwrite !== true) {
+                        throw new Error("would overwrite " + job.outputPath);
+                    }
+                    var ji = rq.items.add(jc);
+                    if (job.rsTemplate) { ji.applyTemplate(String(job.rsTemplate)); }
+                    var jm = ji.outputModule(1);
+                    jm.applyTemplate(String(job.omTemplate || "Lossless"));
+                    jm.file = jf;
+                    ji.comment = "[MCP batch]";
+                    added.push({ index: j, compId: jc.id, outputPath: jf.fsName, item: ji });
+                } catch (e) {
+                    failures.push({ index: j, message: String(e) });
+                }
+            }
+
+            var results = [];
+            if (added.length) {
+                var t0 = new Date().getTime();
+                rq.render();
+                for (var a = 0; a < added.length; a++) {
+                    var f2 = new File(added[a].outputPath);
+                    results.push({ index: added[a].index, compId: added[a].compId,
+                                   outputPath: added[a].outputPath,
+                                   done: (added[a].item.status === RQItemStatus.DONE),
+                                   exists: f2.exists, bytes: f2.exists ? f2.length : 0 });
+                }
+                results.elapsedMs = new Date().getTime() - t0;
+            }
+            for (var b = 0; b < added.length; b++) { try { added[b].item.remove(); } catch (e) {} }
+            for (var pz = 0; pz < pausedB.length; pz++) { try { rq.item(pausedB[pz]).render = true; } catch (e) {} }
+            return { queued: added.length, rendered: results, errors: failures };
+        }
+
         if (cmd !== "render") { throw new Error("Unknown render command: " + cmd); }
 
         var comp = __mcp_resolveComp(args);

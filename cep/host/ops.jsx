@@ -52,6 +52,7 @@ var __mcp_mutating = {
     set: true, setExpression: true, keyframes: true,
     masks: true, setEase: true,
     timing: true, shapes: true, compose: true, render: true,
+    shapeOps: true, projectFile: true, template: true, textAnimator: true,
     layers: true, effects: true, project: true,
     capture: true, captureSequence: true, captureIsolated: true
 };

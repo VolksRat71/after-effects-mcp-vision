@@ -256,6 +256,42 @@ var __mcp_mutateOps = {
                 Number(args.width || comp.width), Number(args.height || comp.height), 1);
             return __mcp_layerSummary(s);
         }
+        if (cmd === "createBoxText") {
+            // Paragraph text, which wraps. addText() only makes point text.
+            var bw = Number(args.width || 400), bh = Number(args.height || 200);
+            var bt = comp.layers.addBoxText([bw, bh]);
+            if (args.text !== undefined) {
+                var btd = bt.property("ADBE Text Properties").property("ADBE Text Document").value;
+                btd.text = String(args.text);
+                bt.property("ADBE Text Properties").property("ADBE Text Document").setValue(btd);
+            }
+            if (args.name) { bt.name = String(args.name); }
+            var bs = __mcp_layerSummary(bt);
+            bs.boxSize = [bw, bh];
+            return bs;
+        }
+        if (cmd === "setCollapse") {
+            var cl = __mcp_layerById(args.layerId);
+            cl.collapseTransformation = (args.enabled !== false);
+            return { layerId: cl.id, collapseTransformation: cl.collapseTransformation };
+        }
+        if (cmd === "applyPreset") {
+            var pl = __mcp_layerById(args.layerId);
+            var pf = new File(String(args.path));
+            if (!pf.exists) { throw new Error("No preset at " + args.path); }
+            pl.applyPreset(pf);
+            return { layerId: pl.id, applied: pf.fsName };
+        }
+        if (cmd === "organise") {
+            var ol = __mcp_layerById(args.layerId);
+            var changed = {};
+            if (args.label !== undefined) { ol.label = Number(args.label); changed.label = ol.label; }
+            if (args.shy !== undefined) { ol.shy = (args.shy !== false); changed.shy = ol.shy; }
+            if (args.guideLayer !== undefined) { ol.guideLayer = (args.guideLayer !== false); changed.guideLayer = ol.guideLayer; }
+            if (args.solo !== undefined) { ol.solo = (args.solo !== false); changed.solo = ol.solo; }
+            if (args.comment !== undefined) { ol.comment = String(args.comment); changed.comment = ol.comment; }
+            return { layerId: ol.id, changed: changed };
+        }
         if (cmd === "createShape") {
             var sh = comp.layers.addShape();
             if (args.name) { sh.name = String(args.name); }

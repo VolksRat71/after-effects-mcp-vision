@@ -73,7 +73,7 @@ if [[ "$KEEP" == "1" ]]; then
   echo "Reopen it yourself when done."
   python3 "$ROOT/test/probe/report.py" "$RESULT"
   STATUS=$?
-  cp "$RESULT" "$ROOT/dist-probe.json" 2>/dev/null || true
+  mkdir -p "$ROOT/dist" && cp "$RESULT" "$ROOT/dist/probe.json"
   rm -rf "$WORK"
   exit $STATUS
 fi
@@ -94,7 +94,7 @@ if [[ ! -f "$RESULT" ]]; then
   echo "probe produced no result - AE may be showing a modal" >&2
   rm -rf "$WORK"; exit 1
 fi
-cp "$RESULT" "$ROOT/dist-probe.json" 2>/dev/null || cp "$RESULT" /tmp/probe.json
+mkdir -p "$ROOT/dist" && cp "$RESULT" "$ROOT/dist/probe.json"
 python3 "$ROOT/test/probe/report.py" "$RESULT"
 STATUS=$?
 rm -rf "$WORK"

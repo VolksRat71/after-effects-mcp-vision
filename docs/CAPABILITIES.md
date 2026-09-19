@@ -4,7 +4,7 @@ What this MCP can and cannot do, **measured** against After Effects 26.0x67 (exp
 
 Every verdict here comes from a probe that ran. None are inferred from the Adobe docs — this project has already caught the docs wrong about `DoScript` return values, `Project.saveAs` existing, and spatial ease dimensionality.
 
-**26 pass · 32 fail · 5 review** across 63 probes.
+**45 pass · 12 fail · 6 review** across 63 probes.
 
 - **pass** — an agent can do it with the shipped tools, no escape hatch.
 - **fail** — not reachable. Needs a named tool or command.
@@ -36,11 +36,11 @@ Every verdict here comes from a probe that ran. None are inferred from the Adobe
 | ✅ pass | `B4` | 3-key overshoot written, numKeys=3<br>*expressible, but the caller invents the 108% and the timing; no overshoot primitive* |
 | ✅ pass | `B5` | community bounce expression applied, expressionError=none<br>*works, but the caller supplies the whole expression; no bounce primitive* |
 | ✅ pass | `B6` | loopOut enabled=true error=none |
-| ❌ fail | `B7` | op 'timeRemap' present: false<br>*layer.timeRemapEnabled + 'ADBE Time Remapping' is fully scriptable; just not exposed* |
+| ✅ pass | `B7` | enabled=true autoKeys=2 outPoint 4->4<br>*enabling auto-creates two keys and changes outPoint; both are reported back* |
 | ✅ pass | `B8` | key 1 out-interpolation is HOLD: true |
-| ❌ fail | `B9` | wrote marker (comp now has 1); read-back op present: false<br>*write-only. An agent cannot drive timing off existing markers it did not create.* |
-| ❌ fail | `B10` | AE supports dimensionsSeparated: true; op exposed: false |
-| ❌ fail | `B11` | AE accepts layer.motionBlur=true; op exposed: false<br>*near-universal on commercial work, commonly forgotten by automation* |
+| ✅ pass | `B9` | read back 1 marker(s); 'beat' at t=2 protectedRegion=true<br>*protectedRegion is Responsive Design - Time, so a retimed template keeps its intro intact* |
+| ✅ pass | `B10` | Position dimensionsSeparated=true<br>*required to ease X and Y independently* |
+| ✅ pass | `B11` | layer=true comp=true<br>*the layer flag alone does nothing; the comp switch is set too* |
 | ❌ fail | `B12` | op 'retime' present: false<br>*'make this 20% faster' needs keyframe-time scaling that preserves eases* |
 
 ## Text
@@ -49,10 +49,10 @@ Every verdict here comes from a probe that ran. None are inferred from the Adobe
 |---|---|---|
 | ✅ pass | `C1` | text='Styled' size=64 tracking=20 |
 | ✅ pass | `C2` | justification 7415 -> 7415 after a text-only write (kept: true)<br>*read-modify-write of the live TextDocument preserves it* |
-| ❌ fail | `C3` | AE has addBoxText: true; createBoxText command accepted: false (op_failed)<br>*point text only. Wrapping copy blocks are not expressible.* |
-| ❌ fail | `C4` | animator group visible to propertyKeys: true; op to create one: false<br>*per-character reveals are the single most common text technique in this work* |
-| ❌ fail | `C5` | no animator op, so Based On=Words is unreachable<br>*'per word' vs 'per letter' is a routine art-direction request* |
-| ❌ fail | `C6` | typewriter needs an opacity animator + square range selector<br>*could also be faked by keyframing sourceText per frame, which is worse and larger* |
+| ✅ pass | `C3` | box text created 300x200, TextDocument.boxText=true |
+| ✅ pass | `C4` | animator 'Reveal' with opacity+position; keyframed selector Offset -> numKeys=2 |
+| ✅ pass | `C5` | requested basedOn=words; AE stored range type 3 (3=Words) |
+| ✅ pass | `C6` | opacity-0 animator + square selector, Start keyframed 0->100, numKeys=2<br>*the standard typewriter, not a per-frame sourceText hack* |
 | ⚠️ review | `C7` | bounds readable (w=361), but no fit op<br>*measurable, so an agent CAN iterate fontSize by hand; there is no autoFit primitive* |
 | ⚠️ review | `C8` | requested a nonexistent font, AE reports font='ThisFontDoesNotExist-Regular'; diagnostics fonts[]=0<br>*silent substitution - the write appears to succeed* |
 
@@ -60,12 +60,12 @@ Every verdict here comes from a probe that ran. None are inferred from the Adobe
 
 | | ID | Finding |
 |---|---|---|
-| ✅ pass | `D1` | created shape 44 with size path ADBE Root Vectors Group > Shape > ADBE Vectors Group > ADBE Vector Shape - Rect > ADBE Vector Rect Size |
-| ❌ fail | `D2` | AE canAddProperty(Trim)=true; op to add one: false <br>*draw-on is P0 for this kind of work and is fully scriptable - purely a missing tool* |
-| ❌ fail | `D3` | no op adds 'ADBE Vector Filter - Repeater'<br>*repeater Offset is the native way to stagger copies without expressions* |
-| ❌ fail | `D4` | no op adds 'ADBE Vector Filter - Merge'<br>*also unsupported by Lottie, so worth flagging at generation time* |
+| ✅ pass | `D1` | created shape 60 with size path ADBE Root Vectors Group > Shape > ADBE Vectors Group > ADBE Vector Shape - Rect > ADBE Vector Rect Size |
+| ✅ pass | `D2` | trim added in group 1; keyframed End via ADBE Root Vectors Group > Shape > ADBE Vectors Group > Trim Paths 1 > ADBE Vector Trim End -> numKeys=2 |
+| ✅ pass | `D3` | repeater added with copies applied: copies; drivable paths: Copies, Offset, Composite, Transform |
+| ✅ pass | `D4` | merge paths added: ADBE Vector Filter - Merge<br>*unsupported by Lottie - worth flagging at generation time if the target is Lottie* |
 | ❌ fail | `D5` | G-Fill added=true; ADBE Vector Grad Colors propertyValueType=6412 (NO_VALUE=6412, match=true)<br>*CONFIRMED unreachable by design. The tool must refuse and redirect to the Gradient Ramp effect.* |
-| ❌ fail | `D6` | stroke dashes ('ADBE Vector Stroke Dashes') not exposed<br>*progress rings = ellipse + trim paths + dash + round cap* |
+| ✅ pass | `D6` | dash elements created: 7; drivable: Dash, Gap, Dash 2, Gap 2, Dash 3, Gap 3, Offset<br>*dashes are an INDEXED group - a Dash element must be added before any value can be set* |
 | ⚠️ review | `D7` | measured text 122x34 and built a pill; caller did the padding maths and the centring<br>*possible but not composed: no op does measure->size->centre, and it does not follow a text change* |
 | ✅ pass | `D8` | groupTransform path returned: ADBE Root Vectors Group > Shape > ADBE Vector Transform Group |
 
@@ -85,13 +85,13 @@ Every verdict here comes from a probe that ran. None are inferred from the Adobe
 | | ID | Finding |
 |---|---|---|
 | ✅ pass | `F1` | slider=true colour=true point=true checkbox=true<br>*expression controls ARE just effects, so rigging already works - it is simply undocumented* |
-| ❌ fail | `F2` | AE canAddToMotionGraphicsTemplate(Opacity)=true ; op exposed: false<br>*fully scriptable and unexposed - the native answer to parameterised templates* |
-| ❌ fail | `F3` | AE has exportAsMotionGraphicsTemplate: true; op exposed: false |
-| ✅ pass | `F4` | precomp 70 holds 2 layers |
-| ❌ fail | `F5` | AE accepts collapseTransformation=true; op exposed: false<br>*affects how nested vectors scale - a real quality issue on resized formats* |
-| ❌ fail | `F6` | AE has applyPreset: true; op exposed: false |
-| ❌ fail | `F7` | AE settable label/shy/guide=true/true/true; addFolder=true; op exposed: false<br>*project hygiene separates handoff-ready work from junk; only rename+lock are exposed* |
-| ❌ fail | `F8` | AE has newProject=true open=true; project command 'newProject' accepted: false (op_failed)<br>*save only. Blocks 'open template, fill, render, close' - how ad variants are produced.* |
+| ✅ pass | `F2` | exposed as 'Card Opacity', controllerCount=1; a 3D property is refused: true |
+| ✅ pass | `F3` | exported a .mogrt: true; wrong extension rejected: true |
+| ✅ pass | `F4` | precomp 102 holds 2 layers |
+| ✅ pass | `F5` | collapseTransformation=true |
+| ⚠️ review | `F6` | applyPreset command exists and rejects a missing file: true<br>*cannot fully verify without a .ffx on this machine* |
+| ✅ pass | `F7` | label=9 shy=true guide=true comment='probe'<br>*project folders are still not exposed - only layer-level hygiene* |
+| ✅ pass | `F8` | open rejects a missing path: true; new refuses to discard unsaved work: true<br>*new/open/close exist; the destructive paths are guarded behind discardUnsaved* |
 
 ## Output
 
@@ -100,15 +100,15 @@ Every verdict here comes from a probe that ran. None are inferred from the Adobe
 | ✅ pass | `G1` | op 'render' present; verified earlier producing 1920x1080 H.264 at 15.0s |
 | ✅ pass | `G2` | alpha-capable output templates on this machine: Alpha Only, High Quality with Alpha, Lossless with Alpha, TIFF Sequence with Alpha<br>*AME cannot export alpha at all; it must come from the render queue* |
 | ✅ pass | `G3` | frame-sequence templates: Multi-Machine Sequence, Photoshop, TIFF Sequence with Alpha |
-| ❌ fail | `G4` | AE has queueInAME: true; op exposed: false<br>*AME gives real bitrate control; direct-from-RQ H.264 is larger and less efficient* |
-| ❌ fail | `G5` | render takes one compId per call; no batch op<br>*ad delivery is N comps x M formats; one-at-a-time means N*M blocking calls* |
+| ✅ pass | `G4` | queueInAME command wired: true (not invoked - it would launch AME)<br>*AME cannot export alpha; use command render for RGB+Alpha* |
+| ✅ pass | `G5` | batch wired: true; rejects an empty job list: true (not rendered - a real batch blocks for minutes) |
 | ⚠️ review | `G6` | Bodymovin extension present on this machine: true; no ExtendScript DOM path to Lottie export either way<br>*extension-driven only. If Lottie is a target, export is a human step or a separate CEP call.* |
 
 ## Cross-cutting
 
 | | ID | Finding |
 |---|---|---|
-| ✅ pass | `H2` | mutating ops are wrapped in beginUndoGroup/endUndoGroup by __mcp_exec (layers 36 -> 37)<br>*implemented in the host dispatcher, verified by code path not by pressing Cmd-Z* |
+| ✅ pass | `H2` | mutating ops are wrapped in beginUndoGroup/endUndoGroup by __mcp_exec (layers 43 -> 44)<br>*implemented in the host dispatcher, verified by code path not by pressing Cmd-Z* |
 | ⚠️ review | `H3` | selection reports 2 layers<br>*AE exposes selectedLayers but not the ORDER the user clicked; designers assume click order for staggers* |
 | ✅ pass | `H4` | solid colour reads back as [1, 0, 0] - 0-1 convention |
 | ✅ pass | `H5` | bad expression reported as invalid_expression<br>*AE disables a bad expression silently; surfacing it is the correct behaviour* |
