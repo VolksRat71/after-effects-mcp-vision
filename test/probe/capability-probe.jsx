@@ -239,6 +239,41 @@ function probeLayout() {
                  notes: "reachable via ae_set expressions, but the caller writes the expression string by hand" };
     });
 
+    probe("A11", "layout", function () {
+        /*
+         * Every corner, rigged. A7/A8 only ever pinned bottomRight, which is
+         * f=[1,1] - the one preset where both axes take the same branch, so a
+         * chained-ternary mis-association in the expression builder produced
+         * the right answer by accident. topRight rigged to the BOTTOM right in
+         * a real build before this probe existed.
+         */
+        var cases = [
+            { to: "topLeft",     x: "left",  y: "top"    },
+            { to: "topRight",    x: "right", y: "top"    },
+            { to: "bottomLeft",  x: "left",  y: "bottom" },
+            { to: "bottomRight", x: "right", y: "bottom" }
+        ];
+        var pad = 70, bad = [], detail = [];
+        for (var i = 0; i < cases.length; i++) {
+            var c = cases[i];
+            var l = mkSolid("A11_" + c.to, 120, 80);
+            call("pin", { layerId: l.id, to: c.to, padding: pad, mode: "rigged" });
+            var m = call("measure", { layerId: l.id }).measured[0];
+            var wantX = (c.x === "left") ? pad : COMP.width - pad;
+            var gotX  = (c.x === "left") ? m.left : m.right;
+            var wantY = (c.y === "top") ? pad : COMP.height - pad;
+            var gotY  = (c.y === "top") ? m.top : m.bottom;
+            var ok = Math.abs(wantX - gotX) < 1 && Math.abs(wantY - gotY) < 1;
+            if (!ok) { bad.push(c.to); }
+            detail.push(c.to + " -> " + gotX.toFixed(0) + "," + gotY.toFixed(0) +
+                        " (want " + wantX + "," + wantY + ")");
+        }
+        return { verdict: bad.length === 0 ? "PASS" : "FAIL",
+                 evidence: detail.join("; "),
+                 notes: bad.length ? ("rigged pin wrong for: " + bad.join(", "))
+                                   : "all four corners agree between the baked value and the rig" };
+    });
+
     probe("A10", "layout", function () {
         var a = mkSolid("A10a", 50, 50), b = mkSolid("A10b", 50, 50);
         call("compose", { command: "parent", layerId: a.id, parentLayerId: b.id });

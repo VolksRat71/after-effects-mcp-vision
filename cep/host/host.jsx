@@ -23,6 +23,14 @@
 #include "./ops-layout.jsx"
 #include "./ops.jsx"
 
+/*
+ * Absolute path of this file, captured at load. #include is a parse-time
+ * preprocessor, so re-evaluating this one file re-pulls every op module -
+ * that is what makes reloadHost work without restarting After Effects.
+ */
+var __mcp_hostFile = null;
+try { __mcp_hostFile = $.fileName; } catch (e) {}
+
 function __mcp_serialize(obj) {
     try {
         return JSON.stringify(obj);

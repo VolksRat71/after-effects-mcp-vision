@@ -13,7 +13,15 @@
  */
 
 const fs = require('fs');
+const nodePath = require('path');
 const { buildContactSheet } = require('./contact-sheet.js');
+
+/*
+ * Absolute path to the ExtendScript entry point. $.fileName is not meaningful
+ * for a script CEP loads via ScriptPath (it came back as "8"), so the Node side
+ * - which does know where it lives - hands the path to reloadHost.
+ */
+const HOST_JSX = nodePath.join(__dirname, '..', 'host', 'host.jsx');
 
 function textContent(value) {
   return { content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }] };
@@ -89,7 +97,7 @@ const TOOLS = [
             properties: {
               layerId: { type: 'number' },
               path: { type: 'array', items: { type: 'string' } },
-              value: { description: 'Number for 1D, array for 2D/3D/colour. For a text document: a string, or {text,fontSize,font,justification,fillColor,tracking,leading}. Point text anchors at the baseline LEFT, so centre it with justification:"center" rather than by nudging position.' },
+              value: { description: 'Number for 1D, array for 2D/3D/colour - colour channels are 0-1, NOT 0-255. For a text document: a string, or {text,fontSize,font,justification,fillColor,tracking,leading}. Point text anchors at the baseline LEFT, so centre it with justification:"center" rather than by nudging position.' },
               expression: { type: 'string' },
               time: { type: 'number', description: 'Present = write a keyframe at this time.' },
             },
@@ -566,6 +574,13 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
+        command: {
+          type: 'string',
+          enum: ['problems', 'reloadHost'],
+          description:
+            'Default problems. reloadHost re-reads the ExtendScript host from disk - CEP loads it ' +
+            'once per extension start, so host edits are otherwise invisible until AE restarts.',
+        },
         maxLayers: { type: 'number', description: 'Cap on layers scanned for expression errors. Default 400.' },
       },
     },
@@ -683,7 +698,10 @@ function createToolRegistry(callHost) {
         : host('project', a).then(textContent);
     },
     ae_capture: capture,
-    ae_diagnostics: (a) => host('problems', a).then(textContent),
+    ae_diagnostics: (a) =>
+      a.command === 'reloadHost'
+        ? host('reloadHost', { hostPath: HOST_JSX }).then(textContent)
+        : host('problems', a).then(textContent),
   };
 
   return {

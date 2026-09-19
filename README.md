@@ -93,6 +93,22 @@ Writes are batch-shaped and report per-item outcomes:
 One bad path does not discard the rest of the batch. Every mutating call runs
 inside an undo group, so an agent's whole batch is a single Cmd-Z.
 
+## Documentation over MCP
+
+The tool schemas describe arguments. They cannot describe that
+`sourceRectAtTime` ignores Scale, or that shape gradients are permanently
+unreachable - so an agent driving this server without a repo checkout used to
+rediscover that by failing. The server publishes it as MCP resources instead:
+
+| Resource | What it holds |
+|---|---|
+| `ae-vision://recipes` | The create-then-style chain, accepted `ae_set` value shapes, measurement traps, ExtendScript hazards, and what is known impossible. [docs/RECIPES.md](docs/RECIPES.md) |
+| `ae-vision://capabilities` | Every probed technique with a measured pass / fail / needs-review verdict. [docs/CAPABILITIES.md](docs/CAPABILITIES.md) |
+| `ae-vision://install` | Install, signing and connection troubleshooting. [docs/INSTALL.md](docs/INSTALL.md) |
+
+The `initialize` response points at `ae-vision://recipes` directly, so a client
+that reads server instructions finds it before authoring anything.
+
 ## Installing
 
 ### From a release

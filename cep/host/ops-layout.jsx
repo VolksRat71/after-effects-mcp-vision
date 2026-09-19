@@ -353,17 +353,30 @@ var __mcp_layoutOps = {
          * gap between the anchor and the rect - that is what keeps a
          * baseline-left text layer from drifting.
          */
+        /*
+         * Explicit branches, NOT a chained ternary. A `a ? x : b ? y : z` split
+         * across newlines inside a concatenation mis-associates in ExtendScript:
+         * it emitted the f===1 arm while f was 0, so `pin topRight` rigged the
+         * layer to the BOTTOM right while the baked value was correctly top
+         * right. Verified against AE 26.0x67 - the static solve and the rig
+         * disagreed on the same `f`. Keep these as if/else.
+         */
+        var xExpr, yExpr;
+        if (f[0] === 0) { xExpr = "pad + dx"; }
+        else if (f[0] === 1) { xExpr = "thisComp.width - pad - r.width + dx"; }
+        else { xExpr = "(thisComp.width - r.width)/2 + dx"; }
+
+        if (f[1] === 0) { yExpr = "pad + dy"; }
+        else if (f[1] === 1) { yExpr = "thisComp.height - pad - r.height + dy"; }
+        else { yExpr = "(thisComp.height - r.height)/2 + dy"; }
+
         var expr =
             "var pad = " + pad + ";\n" +
             "var r = thisLayer.sourceRectAtTime(time, false);\n" +
             "var a = thisLayer.transform.anchorPoint;\n" +
             "var dx = a[0] - r.left, dy = a[1] - r.top;\n" +
-            "var x = " + (f[0] === 0 ? "pad + dx"
-                        : f[0] === 1 ? "thisComp.width - pad - r.width + dx"
-                                     : "(thisComp.width - r.width)/2 + dx") + ";\n" +
-            "var y = " + (f[1] === 0 ? "pad + dy"
-                        : f[1] === 1 ? "thisComp.height - pad - r.height + dy"
-                                     : "(thisComp.height - r.height)/2 + dy") + ";\n" +
+            "var x = " + xExpr + ";\n" +
+            "var y = " + yExpr + ";\n" +
             "[x, y]";
 
         var w = __mcp_writeRigged(__mcp_posProp(layer), p, expr, mode);

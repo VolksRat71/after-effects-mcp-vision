@@ -8,6 +8,8 @@
  * bundling step and the version risk in one go.
  */
 
+const { listResources, readResource } = require('./docs.js');
+
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 
 const SERVER_INFO = { name: 'ae-mcp-vision', version: '2.0.0' };
@@ -46,7 +48,7 @@ function createMcpHandler(registry) {
           const version = PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0];
           return rpcResult(id, {
             protocolVersion: version,
-            capabilities: { tools: { listChanged: false } },
+            capabilities: { tools: { listChanged: false }, resources: { listChanged: false, subscribe: false } },
             serverInfo: SERVER_INFO,
             instructions:
               'Drives a live After Effects session. Start with ae_query ' +
@@ -54,7 +56,10 @@ function createMcpHandler(registry) {
               "ae_query {command:'tree'} and {command:'propertyKeys'} to find things. " +
               'Address everything by the stable ids those return, never by index. ' +
               'Use ae_capture to look at what you actually built rather than ' +
-              'inferring it from the object tree.',
+              'inferring it from the object tree. ' +
+              'Before authoring anything, read the resource ae-vision://recipes - it carries the ' +
+              'create-then-style chain and the measurement traps that silently produce wrong ' +
+              'layouts. ae-vision://capabilities says what is known to work and what cannot.',
           });
         }
 
@@ -77,7 +82,18 @@ function createMcpHandler(registry) {
         }
 
         case 'resources/list':
-          return rpcResult(id, { resources: [] });
+          return rpcResult(id, { resources: listResources() });
+
+        case 'resources/read': {
+          if (!params || typeof params.uri !== 'string') {
+            return rpcError(id, INVALID_PARAMS, 'resources/read requires a uri');
+          }
+          const found = readResource(params.uri);
+          if (!found) {
+            return rpcError(id, INVALID_PARAMS, `Unknown resource: ${params.uri}`);
+          }
+          return rpcResult(id, found);
+        }
         case 'prompts/list':
           return rpcResult(id, { prompts: [] });
 

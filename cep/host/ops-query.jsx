@@ -14,11 +14,16 @@ function __mcp_layerSummary(l) {
         inPoint: l.inPoint, outPoint: l.outPoint,
         startTime: l.startTime, selected: l.selected
     };
-    try { s.type = l instanceof TextLayer ? "TextLayer"
-        : l instanceof ShapeLayer ? "ShapeLayer"
-        : l instanceof CameraLayer ? "CameraLayer"
-        : l instanceof LightLayer ? "LightLayer"
-        : l instanceof AVLayer ? "AVLayer" : "Layer"; } catch (e) { s.type = "Layer"; }
+    // Explicit branches: a chained ternary across newlines mis-associates in
+    // ExtendScript (it silently broke the pin rig in ops-layout.jsx).
+    try {
+        if (l instanceof TextLayer) { s.type = "TextLayer"; }
+        else if (l instanceof ShapeLayer) { s.type = "ShapeLayer"; }
+        else if (l instanceof CameraLayer) { s.type = "CameraLayer"; }
+        else if (l instanceof LightLayer) { s.type = "LightLayer"; }
+        else if (l instanceof AVLayer) { s.type = "AVLayer"; }
+        else { s.type = "Layer"; }
+    } catch (e) { s.type = "Layer"; }
     try { s.parentId = l.parent ? l.parent.id : null; } catch (e) { s.parentId = null; }
     try { s.hasVideo = l.hasVideo; } catch (e) {}
     return s;

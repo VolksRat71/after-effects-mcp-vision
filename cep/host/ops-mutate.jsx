@@ -115,6 +115,9 @@ var __mcp_mutateOps = {
 
     setExpression: function (args) {
         var writes = args.writes || [];
+        // Without this, a caller who passes the wrong key gets appliedCount 0
+        // and an empty errors array - a success-shaped reply for a no-op.
+        if (!writes.length) { throw new Error("setExpression requires a non-empty writes array: [{layerId, path, expression}]"); }
         var applied = [], errors = [];
         for (var i = 0; i < writes.length; i++) {
             var w = writes[i];

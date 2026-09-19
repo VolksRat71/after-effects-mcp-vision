@@ -36,6 +36,34 @@ __mcp_ops.sessionInfo = function () {
     };
 };
 
+/*
+ * Re-evaluate the host from disk. CEP loads ScriptPath once per extension
+ * start, so without this every host edit costs an After Effects restart.
+ */
+__mcp_ops.reloadHost = function (args) {
+    // The Node side supplies the path; $.fileName is not usable under CEP.
+    var candidates = [];
+    if (args && args.hostPath) { candidates.push(String(args.hostPath)); }
+    // $.fileName returned "8" under CEP, so only trust it if it looks like a path.
+    if (__mcp_hostFile && String(__mcp_hostFile).indexOf("/") !== -1) { candidates.push(String(__mcp_hostFile)); }
+    // Conventional CEP install location, as a last resort.
+    try {
+        candidates.push(Folder.userData.fsName +
+            "/Adobe/CEP/extensions/com.aemcpvision.bridge/host/host.jsx");
+    } catch (e) {}
+
+    var f = null;
+    for (var i = 0; i < candidates.length; i++) {
+        var cand = new File(candidates[i]);
+        if (cand.exists) { f = cand; break; }
+    }
+    if (!f) { throw new Error("could not locate host.jsx; tried: " + candidates.join(", ")); }
+    $.evalFile(f);
+    var n = 0;
+    for (var k in __mcp_ops) { if (__mcp_ops.hasOwnProperty(k)) { n++; } }
+    return { reloaded: true, file: f.fsName, opCount: n };
+};
+
 __mcp_ops.listOps = function () {
     var names = [];
     for (var k in __mcp_ops) { if (__mcp_ops.hasOwnProperty(k)) { names.push(k); } }
