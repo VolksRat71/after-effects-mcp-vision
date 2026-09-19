@@ -33,7 +33,9 @@
     "uninstall:dev:win": "powershell -ExecutionPolicy Bypass -File scripts/cep-install.ps1 -Uninstall",
     "package:dmg": "./scripts/build-dmg.sh",
     "package:all": "npm run package && npm run package:dmg",
-    "package:exe": "iscc /DAppVersion=$npm_package_version scripts/installer/windows-installer.iss"
+    "package:exe": "iscc /DAppVersion=$npm_package_version scripts/installer/windows-installer.iss",
+    "probe": "./test/run-capability-probe.sh",
+    "probe:keep": "./test/run-capability-probe.sh --keep"
   },
   "devDependencies": {},
   "os": [

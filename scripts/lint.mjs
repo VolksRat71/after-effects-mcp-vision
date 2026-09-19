@@ -109,6 +109,19 @@ if (cepPkg.type !== 'commonjs') {
   problems.push('cep/package.json: "type" must be "commonjs" - the repo root sets "module"');
 }
 
+// 7. Every registered tool must appear in the README. Five of thirteen tools
+// went undocumented the moment the surface grew; a lint rule is the fix, not a
+// one-off doc edit.
+{
+  const toolsSrc = readFileSync(join(ROOT, 'cep/server/tools.js'), 'utf8');
+  const names = [...toolsSrc.matchAll(/name: '(ae_[a-z_]+)'/g)].map((m) => m[1]);
+  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+  const missing = [...new Set(names)].filter((n) => !readme.includes(n));
+  if (missing.length) {
+    problems.push(`README.md: these registered tools are undocumented: ${missing.join(', ')}`);
+  }
+}
+
 if (problems.length) {
   console.error(`lint: ${problems.length} problem(s)\n`);
   for (const p of problems) console.error(`  ${p}`);

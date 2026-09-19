@@ -36,7 +36,18 @@ size are the two ways an agent burns a context window in here.
 | `ae_effects` | List available, apply, remove, inspect parameters |
 | `ae_project` | Create comps, import footage, add to comp, save |
 | `ae_capture` | **Vision:** one frame, a contact sheet, or an isolated layer |
+| `ae_masks` | Rectangular and freeform masks, feather, animated reveals |
+| `ae_timing` | Layer in/out/startTime, comp settings, markers |
+| `ae_shapes` | Shape layers with real geometry — rect, ellipse, polygon, star, path |
+| `ae_compose` | Precompose, track mattes, blend modes, parenting, 3D, cameras |
+| `ae_render` | Render a composition to a file |
 | `ae_diagnostics` | Missing footage, font substitutions, broken expressions |
+
+**What it cannot do is documented too.** [CAPABILITIES.md](docs/CAPABILITIES.md) is a
+measured matrix of 63 probes run against a live After Effects — 26 pass, 32 fail, 5 need
+human review. Layout is the weakest area; shape operators (trim paths, repeaters) and text
+animators are absent; shape gradient colours and layer styles are permanently unreachable
+through scripting. Regenerate it with `npm run probe`.
 
 ### Seeing
 
