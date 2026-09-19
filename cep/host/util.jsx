@@ -167,3 +167,14 @@ function __mcp_enumOptions(p) {
     } catch (e) {}
     return null;
 }
+
+/*
+ * Close the open project WITHOUT saving, so a later app.open()/newProject()
+ * cannot trigger AE's suppressed "Save changes?" prompt - whose default
+ * button is Save. See projectFile in ops-build.jsx.
+ */
+function __mcp_closeWithoutSaving() {
+    try {
+        if (app.project) { app.project.close(CloseOptions.DO_NOT_SAVE_CHANGES); }
+    } catch (e) {}
+}

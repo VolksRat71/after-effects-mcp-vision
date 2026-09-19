@@ -571,12 +571,23 @@ var __mcp_buildOps = {
      * the "open a template, fill it, render, close" loop that ad variants are
      * actually produced with.
      */
+    /*
+     * Discarding has to be EXPLICIT.
+     *
+     * app.open() and app.newProject() on a dirty project raise AE's "Save
+     * changes?" dialog. Everything here runs inside beginSuppressDialogs,
+     * which answers a suppressed dialog with its DEFAULT button - and for
+     * that prompt the default is Save. So `discardUnsaved: true` silently did
+     * the opposite of what it says and overwrote the user's .aep with
+     * whatever was in memory. Closing first removes the prompt entirely.
+     */
     projectFile: function (args) {
         var cmd = args.command;
         if (cmd === "new") {
             if (app.project && app.project.dirty && args.discardUnsaved !== true) {
                 throw new Error("Current project has unsaved changes. Save it, or pass discardUnsaved:true.");
             }
+            __mcp_closeWithoutSaving();
             app.newProject();
             return { created: true, numItems: app.project.numItems };
         }
@@ -586,6 +597,7 @@ var __mcp_buildOps = {
             if (app.project && app.project.dirty && args.discardUnsaved !== true) {
                 throw new Error("Current project has unsaved changes. Save it, or pass discardUnsaved:true.");
             }
+            __mcp_closeWithoutSaving();
             app.open(f);
             return { opened: app.project.file ? app.project.file.fsName : null,
                      numItems: app.project.numItems };

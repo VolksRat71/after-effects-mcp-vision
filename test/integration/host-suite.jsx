@@ -6,6 +6,23 @@
  */
 (function () {
     var results = [];
+
+    /*
+     * Snapshot every item that already existed. Teardown removes only what the
+     * suite itself spawned.
+     *
+     * The previous teardown matched on NAME and deleted anything called
+     * "Solids" - which is AE's single shared folder holding every solid in the
+     * project, not just ours. Running the suite against a real open project
+     * silently destroyed the user's solid layers (a background and a video
+     * plate went missing in exactly this way). "bg" had the same problem.
+     */
+    var __preExisting = {};
+    try {
+        for (var __p = 1; __p <= app.project.numItems; __p++) {
+            __preExisting[app.project.item(__p).id] = true;
+        }
+    } catch (e) {}
     var scratchCompId = null;
 
     function record(name, fn) {
@@ -442,10 +459,12 @@
     // Teardown: remove the scratch comp and anything it spawned.
     try {
         app.beginUndoGroup("mcp suite teardown");
+        // Reverse order: removing a folder reindexes everything after it.
         for (var i = app.project.numItems; i >= 1; i--) {
             var it = app.project.item(i);
-            if (it.name === "__mcp_test__" || it.name === "bg" || it.name === "Solids" ||
-                it.name === "__nested__") { it.remove(); }
+            // Never touch an item that was open before the suite started.
+            if (__preExisting[it.id]) { continue; }
+            try { it.remove(); } catch (e) {}
         }
         app.endUndoGroup();
     } catch (e) {
