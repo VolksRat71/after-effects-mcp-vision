@@ -445,6 +445,61 @@ const TOOLS = [
     },
   },
   {
+    name: 'ae_layout',
+    description:
+      'Layout: the thing After Effects has no engine for. There is no align API in AE at all, no ' +
+      'distribute, no grid, no padding - every position is absolute arithmetic. These compose ' +
+      'measure-and-place so you do not do that arithmetic yourself.\n\n' +
+      'Commands:\n' +
+      '- measure: rendered bounds in COMP space. Handles the sourceRectAtTime traps for you - it ' +
+      'ignores layer Scale, returns layer space, and desyncs on time-offset layers. Reports ' +
+      '`reliable:false` rather than lying when a fresh shape layer measures 0x0.\n' +
+      '- anchor: move the anchor to a corner or centre WITHOUT the layer moving. Setting an anchor ' +
+      'alone shifts the layer by the anchor delta; this compensates Position and returns `movedBy` ' +
+      'so you can verify it stayed put.\n' +
+      '- align: to each other or to the comp. distribute: by equal `gaps` between boxes (usually ' +
+      'what is meant) or equal `centers`.\n' +
+      '- stack: row, column or grid with a gap. This is the reflow primitive - a four-tile ' +
+      'accordion is one stack call rather than dozens of hand-computed keyframes.\n' +
+      '- pin: to a comp edge or corner with padding.\n' +
+      '- fit: size a SHAPE layer to hug another layer plus padding. The pill-behind-text unit.\n' +
+      '- stagger: offset layers in time. IDEMPOTENT - base times are recorded, so running it twice ' +
+      're-derives instead of compounding.\n\n' +
+      'mode: "static" bakes pixels; "rigged" bakes them AND attaches an expression on top, so the ' +
+      'layout follows later edits. A rigged value degrades to the baked pixels if the expression ' +
+      'errors - and note Lottie native players and Rive ignore expressions entirely, so bake before ' +
+      'those exports.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', enum: ['measure', 'anchor', 'align', 'distribute', 'stack', 'pin', 'fit', 'stagger'] },
+        compId: { type: 'number' },
+        layerId: { type: 'number' },
+        layerIds: { type: 'array', items: { type: 'number' } },
+        toLayerId: { type: 'number', description: 'fit: the layer to hug.' },
+        to: { type: 'string', enum: ['topLeft','topCenter','topRight','middleLeft','center','middleRight','bottomLeft','bottomCenter','bottomRight'], description: 'anchor / pin target.' },
+        align: { type: 'string', enum: ['left','right','centerX','top','bottom','centerY','center'] },
+        relativeTo: { type: 'string', enum: ['selection', 'comp'] },
+        axis: { type: 'string', enum: ['horizontal', 'vertical'] },
+        by: { type: 'string', enum: ['gaps', 'centers'] },
+        direction: { type: 'string', enum: ['row', 'column', 'grid'] },
+        columns: { type: 'number', description: 'grid only.' },
+        gap: { type: 'number' },
+        x: { type: 'number', description: 'stack origin. Defaults to where the first layer already is.' },
+        y: { type: 'number' },
+        padding: { type: 'number' },
+        paddingX: { type: 'number' },
+        paddingY: { type: 'number' },
+        step: { type: 'number', description: 'stagger: seconds between layers.' },
+        from: { type: 'number', description: 'stagger: time the first layer starts at.' },
+        order: { type: 'string', enum: ['listed', 'index', 'reverse'] },
+        time: { type: 'number', description: 'Measure at this time. Defaults to the playhead.' },
+        mode: { type: 'string', enum: ['static', 'rigged'] },
+      },
+      required: ['command'],
+    },
+  },
+  {
     name: 'ae_text',
     description:
       'Text animators and range selectors - how essentially every per-character and per-word ' +
@@ -614,6 +669,8 @@ function createToolRegistry(callHost) {
     },
     ae_template: (a) => host('template', a).then(textContent),
     ae_text: (a) => host('textAnimator', a).then(textContent),
+    // Each layout command is its own host op; the tool is the grouping.
+    ae_layout: (a) => host(a.command, a).then(textContent),
     ae_compose: (a) => host('compose', a).then(textContent),
     ae_render: (a) => host('render', a).then(textContent),
     ae_layers: (a) => host('layers', a).then(textContent),

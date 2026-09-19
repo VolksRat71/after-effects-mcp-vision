@@ -26,8 +26,8 @@ test('the tool surface is the eight documented tools', () => {
   assert.deepStrictEqual(
     TOOLS.map((t) => t.name).sort(),
     ['ae_animate', 'ae_capture', 'ae_compose', 'ae_diagnostics', 'ae_effects', 'ae_layers',
-     'ae_masks', 'ae_project', 'ae_query', 'ae_render', 'ae_set', 'ae_shapes', 'ae_template',
-     'ae_text', 'ae_timing'],
+     'ae_layout', 'ae_masks', 'ae_project', 'ae_query', 'ae_render', 'ae_set', 'ae_shapes',
+     'ae_template', 'ae_text', 'ae_timing'],
   );
 });
 
@@ -237,4 +237,27 @@ test('ae_text explains the per-letter vs per-word choice, which is the whole poi
   assert.match(t.description, /per-word/);
   assert.match(t.description, /basedOn/);
   assert.match(t.description, /typewriter/i);
+});
+
+test('ae_layout dispatches each command to its own host op', async () => {
+  const host = stubHost();
+  const reg = createToolRegistry(host.fn);
+  for (const c of ['measure', 'anchor', 'align', 'distribute', 'stack', 'pin', 'fit', 'stagger']) {
+    await reg.callTool('ae_layout', { command: c });
+  }
+  assert.deepStrictEqual(host.calls.map((x) => x.op),
+    ['measure', 'anchor', 'align', 'distribute', 'stack', 'pin', 'fit', 'stagger']);
+});
+
+test('ae_layout documents the anchor-jump problem it exists to solve', () => {
+  const l = TOOLS.find((t) => t.name === 'ae_layout');
+  assert.match(l.description, /WITHOUT the layer moving/);
+  assert.match(l.description, /movedBy/);
+});
+
+test('ae_layout states that rigged mode does not survive Lottie or Rive', () => {
+  const l = TOOLS.find((t) => t.name === 'ae_layout');
+  assert.match(l.description, /Lottie/);
+  assert.match(l.description, /Rive/);
+  assert.match(l.description, /IDEMPOTENT/);
 });

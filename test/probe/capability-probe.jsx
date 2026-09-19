@@ -112,72 +112,119 @@ function probeLayout() {
         // Centring must account for the anchor. Text anchors baseline-left, so
         // setting position to comp centre does NOT optically centre it.
         var t = mkText("Centre me", "A1");
-        var r = t.sourceRectAtTime(0, false);
-        t.property("ADBE Transform Group").property("ADBE Position").setValue([COMP.width/2, COMP.height/2]);
-        var anchored = t.property("ADBE Transform Group").property("ADBE Anchor Point").value;
-        var optical = (anchored[0] === r.left + r.width/2);
-        return { verdict: "FAIL",
-                 evidence: "no centre op; naive set leaves anchor at " + anchored.join(",") +
-                           " while ink centre is " + (r.left + r.width/2).toFixed(1) + "," + (r.top + r.height/2).toFixed(1),
-                 notes: "bounds is readable, but nothing composes measure+place. Caller does the maths." };
+        call("align", { layerIds: [t.id], align: "center", relativeTo: "comp" });
+        var m = call("measure", { layerId: t.id }).measured[0];
+        var offX = Math.abs(m.centerX - COMP.width / 2);
+        var offY = Math.abs(m.centerY - COMP.height / 2);
+        return { verdict: (offX < 1 && offY < 1) ? "PASS" : "FAIL",
+                 evidence: "optical centre lands at " + m.centerX.toFixed(1) + "," + m.centerY.toFixed(1) +
+                           " vs comp centre " + (COMP.width/2) + "," + (COMP.height/2) +
+                           " (off by " + offX.toFixed(2) + "," + offY.toFixed(2) + ")",
+                 notes: "centres the INK, not the anchor - a baseline-left text layer would otherwise sit wrong" };
     });
 
     probe("A2", "layout", function () {
-        var have = hasOp("align");
-        return { verdict: have ? "PASS" : "FAIL",
-                 evidence: "op 'align' present: " + have,
-                 notes: "AE Align panel is not scriptable at all; this must be computed from sourceRectAtTime" };
+        var a = mkSolid("A2a", 100, 50), b = mkSolid("A2b", 200, 50), c = mkText("A2c", "A2c");
+        call("set", { writes: [
+            { layerId: a.id, path: ["ADBE Transform Group","ADBE Position"], value: [300, 300] },
+            { layerId: b.id, path: ["ADBE Transform Group","ADBE Position"], value: [700, 400] },
+            { layerId: c.id, path: ["ADBE Transform Group","ADBE Position"], value: [500, 500] }] });
+        // include a rotated layer - naive implementations break on these
+        call("set", { writes: [{ layerId: b.id, path: ["ADBE Transform Group","ADBE Rotate Z"], value: 15 }] });
+        call("align", { layerIds: [a.id, b.id, c.id], align: "left" });
+        var ms = call("measure", { layerIds: [a.id, b.id, c.id] }).measured;
+        var lefts = [ms[0].left, ms[1].left, ms[2].left];
+        var spread = Math.max(lefts[0],lefts[1],lefts[2]) - Math.min(lefts[0],lefts[1],lefts[2]);
+        return { verdict: spread < 1.5 ? "PASS" : "REVIEW",
+                 evidence: "left edges after align: " + lefts[0].toFixed(1) + ", " + lefts[1].toFixed(1) +
+                           ", " + lefts[2].toFixed(1) + " (spread " + spread.toFixed(2) + ")",
+                 notes: spread < 1.5 ? "includes a rotated layer and a text layer"
+                                     : "rotation is not accounted for - bounds are axis-aligned on the source" };
     });
 
     probe("A3", "layout", function () {
-        return { verdict: hasOp("distribute") ? "PASS" : "FAIL",
-                 evidence: "op 'distribute' present: " + hasOp("distribute"),
-                 notes: "two valid semantics (equal gaps vs equal centres); neither is offered" };
+        var ws = [60, 140, 40, 200, 80], made = [];
+        for (var i = 0; i < ws.length; i++) {
+            var l = mkSolid("A3_" + i, ws[i], 40);
+            call("set", { writes: [{ layerId: l.id, path: ["ADBE Transform Group","ADBE Position"],
+                                     value: [200 + i * 300, 700] }] });
+            made.push(l.id);
+        }
+        var r = call("distribute", { layerIds: made, axis: "horizontal", by: "gaps" });
+        var ms2 = call("measure", { layerIds: made }).measured;
+        ms2.sort(function(a,b){ return a.left - b.left; });
+        var gaps = [];
+        for (var g = 1; g < ms2.length; g++) { gaps.push(ms2[g].left - ms2[g-1].right); }
+        var mn = Math.min.apply(null, gaps), mx = Math.max.apply(null, gaps);
+        return { verdict: (mx - mn) < 1.5 ? "PASS" : "FAIL",
+                 evidence: "equal-GAP distribute over unequal widths; gaps " +
+                           (function(){ var o=[]; for(var q=0;q<gaps.length;q++){o.push(gaps[q].toFixed(1));} return o.join(", "); })() +
+                           " (variance " + (mx-mn).toFixed(2) + ")",
+                 notes: "gaps and centres give different answers for unequal widths; both are offered" };
     });
 
     probe("A4", "layout", function () {
-        return { verdict: hasOp("grid") || hasOp("stack") ? "PASS" : "FAIL",
-                 evidence: "ops grid/stack present: " + hasOp("grid") + "/" + hasOp("stack") };
+        var ids = [];
+        for (var i = 0; i < 6; i++) { ids.push(mkSolid("A4_" + i, 80, 60).id); }
+        var r = call("stack", { layerIds: ids, direction: "grid", columns: 3, gap: 20, x: 100, y: 100 });
+        var p = r.placed;
+        var rowOk = (Math.abs(p[1].left - (p[0].left + 80 + 20)) < 0.6);
+        var colOk = (Math.abs(p[3].top - (p[0].top + 60 + 20)) < 0.6);
+        return { verdict: (rowOk && colOk) ? "PASS" : "FAIL",
+                 evidence: "3-column grid: item2 left=" + p[1].left + " (want " + (p[0].left+100) +
+                           "), item4 top=" + p[3].top + " (want " + (p[0].top+80) + ")" };
     });
 
     probe("A5", "layout", function () {
         // The industry's most-used utility: move the anchor WITHOUT the layer moving.
         var l = mkSolid("A5", 200, 100);
-        var tr = l.property("ADBE Transform Group");
-        tr.property("ADBE Position").setValue([500, 500]);
-        var before = l.sourceRectAtTime(0, false);
-        var beforeScreen = tr.property("ADBE Position").value[0] - tr.property("ADBE Anchor Point").value[0];
-        // Move the anchor to the TOP-LEFT corner. [100,50] would have been the
-        // default centre for a 200x100 solid - testing that moves nothing.
-        call("set", { writes: [{ layerId: l.id, path: ["ADBE Transform Group", "ADBE Anchor Point"], value: [0, 0] }] });
-        var afterScreen = tr.property("ADBE Position").value[0] - tr.property("ADBE Anchor Point").value[0];
-        var jumped = !near(beforeScreen, afterScreen, 0.5);
-        return { verdict: "FAIL",
-                 evidence: "layer left edge moved " + beforeScreen.toFixed(1) + " -> " + afterScreen.toFixed(1) +
-                           " (jumped: " + jumped + ")",
-                 notes: "ae_set moves the anchor with no Position compensation, so the layer visibly jumps" };
+        call("set", { writes: [{ layerId: l.id, path: ["ADBE Transform Group","ADBE Position"], value: [500, 500] }] });
+        var worst = 0, checked = [];
+        var spots = ["topLeft", "bottomCenter", "middleRight", "center"];
+        for (var i = 0; i < spots.length; i++) {
+            var r = call("anchor", { layerId: l.id, to: spots[i] });
+            var d = Math.max(Math.abs(r.movedBy.x), Math.abs(r.movedBy.y));
+            worst = Math.max(worst, d);
+            checked.push(spots[i] + "=" + d);
+        }
+        return { verdict: worst < 0.5 ? "PASS" : "FAIL",
+                 evidence: "anchor moved to 4 positions; worst on-screen drift " + worst + "px (" + checked.join(", ") + ")",
+                 notes: "Position is compensated by the anchor delta, so the layer stays put" };
     });
 
     probe("A6", "layout", function () {
         return { verdict: "FAIL", evidence: "no safe-area concept in any tool",
-                 notes: "needs per-platform inset tables (TikTok/Reels reserve top 10-15%, bottom 20-25%), not a generic 80%" };
+                 notes: "pin with padding covers a fixed inset, but not per-platform zones (TikTok/Reels reserve top 10-15%, bottom 20-25%)" };
     });
 
     probe("A7", "layout", function () {
-        return { verdict: hasOp("pin") ? "PASS" : "FAIL",
-                 evidence: "op 'pin' present: " + hasOp("pin"),
-                 notes: "padding/inset from a comp edge is pure arithmetic the caller must do" };
+        var t = mkText("Pinned", "A7");
+        var r = call("pin", { layerId: t.id, to: "bottomRight", padding: 80, mode: "static" });
+        var m = call("measure", { layerId: t.id }).measured[0];
+        var okX = Math.abs((COMP.width - 80) - m.right) < 1;
+        var okY = Math.abs((COMP.height - 80) - m.bottom) < 1;
+        return { verdict: (okX && okY) ? "PASS" : "FAIL",
+                 evidence: "pinned bottom-right with 80 padding; right=" + m.right.toFixed(1) +
+                           " (want " + (COMP.width-80) + "), bottom=" + m.bottom.toFixed(1) +
+                           " (want " + (COMP.height-80) + ")" };
     });
 
     probe("A8", "layout", function () {
-        var w0 = COMP.width;
+        // A rigged pin should survive a comp resize - that is what makes one
+        // build deliverable at 16:9, 1:1 and 9:16.
+        var t = mkText("Reflow", "A8");
+        call("pin", { layerId: t.id, to: "bottomRight", padding: 60, mode: "rigged" });
+        var w0 = COMP.width, h0 = COMP.height;
         call("timing", { command: "setComp", compId: COMP.id, width: 1080, height: 1080 });
-        var resized = (COMP.width === 1080 && COMP.height === 1080);
-        call("timing", { command: "setComp", compId: COMP.id, width: w0, height: 1080 });
-        call("timing", { command: "setComp", compId: COMP.id, width: w0, height: 1080 });
-        return { verdict: "FAIL",
-                 evidence: "comp resize works (" + resized + ") but no layer reflows",
-                 notes: "multi-format delivery is P0 for ad work; resize alone letterboxes" };
+        refreshComp();
+        var m = call("measure", { layerId: t.id }).measured[0];
+        var okSquare = Math.abs((1080 - 60) - m.right) < 2;
+        call("timing", { command: "setComp", compId: COMP.id, width: w0, height: h0 });
+        refreshComp();
+        return { verdict: okSquare ? "PASS" : "FAIL",
+                 evidence: "resized 1920x1080 -> 1080x1080; rigged pin put right edge at " +
+                           m.right.toFixed(1) + " (want 1020)",
+                 notes: "rigged mode re-derives from thisComp each frame, so one build covers several formats" };
     });
 
     probe("A9", "layout", function () {
@@ -204,9 +251,15 @@ function probeLayout() {
 
 function probeTiming() {
     probe("B1", "timing", function () {
-        return { verdict: hasOp("stagger") ? "PASS" : "FAIL",
-                 evidence: "op 'stagger' present: " + hasOp("stagger"),
-                 notes: "the accordion build hand-computed N*3.75+0.25 across 48 keyframes" };
+        var ids = [];
+        for (var i = 0; i < 5; i++) { ids.push(mkSolid("B1_" + i, 30, 30).id); }
+        var r = call("stagger", { layerIds: ids, step: 0.2, from: 0 });
+        var starts = [];
+        for (var j = 0; j < r.applied.length; j++) { starts.push(r.applied[j].startTime); }
+        var even = true;
+        for (var k = 1; k < starts.length; k++) { if (Math.abs((starts[k]-starts[k-1]) - 0.2) > 0.01) { even = false; } }
+        return { verdict: even ? "PASS" : "FAIL",
+                 evidence: "5 layers staggered by 0.2s: " + starts.join(", ") };
     });
 
     probe("B2", "timing", function () {
@@ -219,14 +272,20 @@ function probeTiming() {
         var i1 = op.keyOutTemporalEase(1)[0].influence;
         call("setEase", { layerId: l.id, path: ["ADBE Transform Group", "ADBE Opacity"], influence: 60 });
         var i2 = op.keyOutTemporalEase(1)[0].influence;
-        // But adding the SAME keyframes twice is the real risk.
-        call("keyframes", { layerId: l.id, path: ["ADBE Transform Group", "ADBE Opacity"],
-                            add: [{ time: 0, value: 0 }, { time: 1, value: 100 }] });
-        var n = op.numKeys;
-        return { verdict: (near(i1, i2, 0.01) && n === 2) ? "PASS" : "REVIEW",
-                 evidence: "ease influence " + i1.toFixed(1) + " -> " + i2.toFixed(1) +
-                           " on re-apply; re-adding same-time keys left numKeys=" + n,
-                 notes: "AE replaces a key at an identical time, so add is naturally idempotent. A stagger op would not be." };
+        // The real idempotency risk is an op that COMPUTES offsets. Run stagger
+        // twice and confirm it re-derives rather than compounding.
+        var sids = [];
+        for (var q = 0; q < 4; q++) { sids.push(mkSolid("B2_" + q, 20, 20).id); }
+        var first = call("stagger", { layerIds: sids, step: 0.25 });
+        var again = call("stagger", { layerIds: sids, step: 0.25 });
+        var same = true;
+        for (var z = 0; z < first.applied.length; z++) {
+            if (Math.abs(first.applied[z].startTime - again.applied[z].startTime) > 0.001) { same = false; }
+        }
+        return { verdict: (near(i1, i2, 0.01) && same) ? "PASS" : "FAIL",
+                 evidence: "ease re-apply " + i1.toFixed(1) + "->" + i2.toFixed(1) +
+                           "; stagger run twice produced identical start times: " + same,
+                 notes: "stagger records base times in the layer comment, so it re-derives instead of compounding" };
     });
 
     probe("B3", "timing", function () {
@@ -326,9 +385,9 @@ function probeTiming() {
     });
 
     probe("B12", "timing", function () {
-        return { verdict: hasOp("retime") ? "PASS" : "FAIL",
-                 evidence: "op 'retime' present: " + hasOp("retime"),
-                 notes: "'make this 20% faster' needs keyframe-time scaling that preserves eases" };
+        return { verdict: "FAIL",
+                 evidence: "no retime op - scaling all keyframe times by a factor is still unbuilt",
+                 notes: "'make this 20% faster' must preserve eases while moving every key" };
     });
 }
 
@@ -409,12 +468,14 @@ function probeText() {
     });
 
     probe("C7", "text", function () {
+        // Auto-SCALE text to fit a box is still distinct from fit(), which
+        // sizes a box to text. Confirm the measurement half exists and say so.
         var t = mkText("A fairly long string to fit", "C7");
-        var b = call("bounds", { layerId: t.id, time: 0 });
-        var fits = b.reliable && b.layerSpace.width > 0;
-        return { verdict: fits ? "REVIEW" : "FAIL",
-                 evidence: "bounds readable (w=" + b.layerSpace.width.toFixed(0) + "), but no fit op",
-                 notes: "measurable, so an agent CAN iterate fontSize by hand; there is no autoFit primitive" };
+        var m = call("measure", { layerId: t.id }).measured[0];
+        return { verdict: m.reliable ? "REVIEW" : "FAIL",
+                 evidence: "measurable (w=" + m.width.toFixed(0) + "); ae_layout fit sizes a BOX to text, " +
+                           "but scaling TEXT down to fit a fixed box has no primitive",
+                 notes: "an agent can iterate fontSize against measure; there is no autoFit that does it" };
     });
 
     probe("C8", "text", function () {
@@ -515,13 +576,17 @@ function probeShapes() {
         var b = call("bounds", { layerId: t.id, time: 0 });
         var pad = [24, 12];
         var pill = call("shapes", { command: "create", compId: COMP.id, kind: "rect",
-            width: b.layerSpace.width + pad[0] * 2, height: b.layerSpace.height + pad[1] * 2,
-            roundness: 999, fill: [1, 1, 1, 1] });
-        var built = !!pill.id;
-        return { verdict: built ? "REVIEW" : "FAIL",
-                 evidence: "measured text " + b.layerSpace.width.toFixed(0) + "x" + b.layerSpace.height.toFixed(0) +
-                           " and built a pill; caller did the padding maths and the centring",
-                 notes: "possible but not composed: no op does measure->size->centre, and it does not follow a text change" };
+                                    width: 10, height: 10, roundness: 999, fill: [1,1,1,1], name: "pill" });
+        var f = call("fit", { layerId: pill.id, toLayerId: t.id, paddingX: 24, paddingY: 12, mode: "rigged" });
+        // Now change the text: a rigged fit must follow it.
+        call("set", { writes: [{ layerId: t.id, path: ["ADBE Text Properties","ADBE Text Document"],
+                                 value: { text: "Hug me but considerably longer now" } }] });
+        var after = call("measure", { layerId: pill.id }).measured[0];
+        var grew = after.width > f.size[0] + 20;
+        return { verdict: (f.rigged && grew) ? "PASS" : (f.size ? "REVIEW" : "FAIL"),
+                 evidence: "fit sized pill to " + f.size[0].toFixed(0) + "x" + f.size[1].toFixed(0) +
+                           "; after a longer string it measures " + after.width.toFixed(0) +
+                           " (followed: " + grew + ", rigged: " + f.rigged + ")" };
     });
 
     probe("D8", "shapes", function () {

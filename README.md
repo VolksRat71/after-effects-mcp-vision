@@ -41,6 +41,7 @@ size are the two ways an agent burns a context window in here.
 | `ae_shapes` | Shape layers with real geometry — rect, ellipse, polygon, star, path |
 | `ae_compose` | Precompose, track mattes, blend modes, parenting, 3D, cameras |
 | `ae_render` | Render to a file, batch N outputs in one pass, or hand off to Media Encoder |
+| `ae_layout` | Measure, align, distribute, stack, pin, fit, stagger — AE has no layout engine |
 | `ae_text` | Text animators and range selectors — per-character and per-word reveals |
 | `ae_template` | Essential Graphics — expose properties, export a `.mogrt` |
 | `ae_diagnostics` | Missing footage, font substitutions, broken expressions |

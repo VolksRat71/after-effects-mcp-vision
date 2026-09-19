@@ -47,6 +47,18 @@ const ES3_BANNED = [
   [/\.\.\./, 'spread/rest'],
   [/(^|[^.\w])class\s+[A-Za-z_$]/m, 'class declaration'],
   [/\bJSON\.(parse|stringify)\b/, null], // allowed - we ship a polyfill
+  // ES5 methods that do not exist on ExtendScript's ES3 engine. These parse
+  // fine and fail at runtime with "Function x.map is undefined" - which is
+  // exactly how a probe broke after the syntax checks all passed.
+  [/\.\s*map\s*\(/, 'Array.map (ES5 - not in ExtendScript, use a for loop)'],
+  [/\.\s*filter\s*\(/, 'Array.filter (ES5 - not in ExtendScript)'],
+  [/\.\s*forEach\s*\(/, 'Array.forEach (ES5 - not in ExtendScript)'],
+  [/\.\s*reduce\s*\(/, 'Array.reduce (ES5 - not in ExtendScript)'],
+  [/\.\s*some\s*\(/, 'Array.some (ES5 - not in ExtendScript)'],
+  [/\.\s*every\s*\(/, 'Array.every (ES5 - not in ExtendScript)'],
+  [/\.\s*trim\s*\(\s*\)/, 'String.trim (ES5 - not in ExtendScript)'],
+  [/Object\.keys\s*\(/, 'Object.keys (ES5 - not in ExtendScript, use for..in)'],
+  [/Array\.isArray\s*\(/, 'Array.isArray (ES5 - use instanceof Array)'],
 ];
 // Strings and comments are prose, not code. "(mov, png, ...)" inside a message
 // is not a spread operator, and a require() mentioned in a comment is not a

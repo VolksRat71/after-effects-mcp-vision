@@ -7,7 +7,7 @@
 var __mcp_ops = {};
 
 (function () {
-    var tables = [__mcp_queryOps, __mcp_mutateOps, __mcp_captureOps, __mcp_diagnosticOps, __mcp_buildOps];
+    var tables = [__mcp_queryOps, __mcp_mutateOps, __mcp_captureOps, __mcp_diagnosticOps, __mcp_buildOps, __mcp_layoutOps];
     for (var t = 0; t < tables.length; t++) {
         for (var k in tables[t]) {
             if (tables[t].hasOwnProperty(k)) { __mcp_ops[k] = tables[t][k]; }
@@ -53,6 +53,7 @@ var __mcp_mutating = {
     masks: true, setEase: true,
     timing: true, shapes: true, compose: true, render: true,
     shapeOps: true, projectFile: true, template: true, textAnimator: true,
+    anchor: true, align: true, distribute: true, stack: true, pin: true, fit: true, stagger: true,
     layers: true, effects: true, project: true,
     capture: true, captureSequence: true, captureIsolated: true
 };
