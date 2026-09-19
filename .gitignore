@@ -64,3 +64,13 @@ logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Captured frames and packaged builds
+doc/debug_session_*/
+doc/debug_frame_*.png
+doc/client-sequence/
+dist/
+*.zxp
+
+# probe output is a build artifact, not source
+dist-probe.json

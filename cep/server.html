@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8" /><title>AE MCP Vision server</title></head>
+<body>
+  <!-- Headless. Type=Custom with AutoVisible=false, so this never renders.
+       It exists only to own the Node process that hosts the MCP server. -->
+  <script>
+    /*
+     * Boot diagnostics are written to disk, not the console. A Type=Custom
+     * extension has no visible console and its renderer log stays empty, so a
+     * failure in here is otherwise completely silent - which is exactly how the
+     * first load failed.
+     */
+    (function () {
+      var stage = 'start';
+      function note(msg) {
+        try {
+          var os = require('os'), fs = require('fs'), path = require('path');
+          var dir = path.join(os.tmpdir(), 'ae-mcp-vision');
+          fs.mkdirSync(dir, { recursive: true });
+          fs.appendFileSync(path.join(dir, 'boot.log'),
+            new Date().toISOString() + ' ' + msg + '\n');
+        } catch (e) { /* nothing left to report with */ }
+      }
+      try {
+        stage = 'require available';
+        if (typeof require !== 'function') {
+          throw new Error('require() is not defined - --enable-nodejs did not take effect');
+        }
+        note('boot: require present, node ' + process.version);
+        stage = 'resolving extension root';
+        var root = decodeURIComponent(window.location.pathname).replace(/\/[^/]*$/, '');
+        note('boot: extension root ' + root);
+        stage = 'loading server-boot';
+        var boot = require(require('path').join(root, 'client', 'server-boot.js'));
+        note('boot: module loaded');
+        stage = 'calling boot()';
+        boot.boot();
+        note('boot: boot() returned');
+      } catch (err) {
+        note('BOOT FAILED at "' + stage + '": ' + (err && err.stack ? err.stack : err));
+      }
+    })();
+  </script>
+</body>
+</html>

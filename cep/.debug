@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExtensionList>
+  <Extension Id="com.aemcpvision.bridge.server">
+    <HostList>
+      <Host Name="AEFT" Port="8798"/>
+    </HostList>
+  </Extension>
+  <Extension Id="com.aemcpvision.bridge.panel">
+    <HostList>
+      <Host Name="AEFT" Port="8799"/>
+    </HostList>
+  </Extension>
+</ExtensionList>

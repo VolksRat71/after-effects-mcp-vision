@@ -1,0 +1,141 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm run lint
+      - run: npm test
+      - name: Tag must match package.json
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          # Allow a prerelease suffix: v2.0.0-rc1 is a valid tag for 2.0.0.
+          BASE="${TAG%%-*}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$BASE" != "$PKG" ]; then
+            echo "::error::Tag $TAG (base $BASE) does not match package.json version $PKG"
+            exit 1
+          fi
+          echo "tag $TAG matches package.json $PKG"
+
+  # The .zxp is the cross-platform package for people who already use
+  # ZXPInstaller. The native installers below are for everyone else.
+  zxp:
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Restore signing certificate
+        id: cert
+        env:
+          ZXP_CERT_B64: ${{ secrets.ZXP_CERT_B64 }}
+        run: |
+          if [ -n "$ZXP_CERT_B64" ]; then
+            echo "$ZXP_CERT_B64" | base64 -d > /tmp/cert.p12
+            echo "cert_path=/tmp/cert.p12" >> "$GITHUB_OUTPUT"
+          else
+            echo "cert_path=" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Unsigned .zxp::No ZXP_CERT_B64 secret."
+          fi
+      - env:
+          ZXP_CERT: ${{ steps.cert.outputs.cert_path }}
+          ZXP_CERT_PASS: ${{ secrets.ZXP_CERT_PASS }}
+        run: npm run package
+      - uses: actions/upload-artifact@v4
+        with: { name: zxp, path: dist/*.zxp, if-no-files-found: error }
+      - if: always()
+        run: rm -f /tmp/cert.p12
+
+  macos:
+    runs-on: macos-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      # Signing and notarization are optional. Without the secrets this still
+      # produces a working .dmg that Gatekeeper will warn about on first open.
+      - name: Import signing certificate
+        id: sign
+        env:
+          MACOS_CERT_B64: ${{ secrets.MACOS_CERT_B64 }}
+          MACOS_CERT_PASS: ${{ secrets.MACOS_CERT_PASS }}
+        run: |
+          if [ -n "$MACOS_CERT_B64" ]; then
+            echo "$MACOS_CERT_B64" | base64 -d > /tmp/cert.p12
+            security create-keychain -p actions build.keychain
+            security default-keychain -s build.keychain
+            security unlock-keychain -p actions build.keychain
+            security import /tmp/cert.p12 -k build.keychain -P "$MACOS_CERT_PASS" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple: -s -k actions build.keychain
+            echo "have_cert=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_cert=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Unsigned .dmg::No MACOS_CERT_B64 secret. Users must right-click > Open on first run."
+          fi
+      - name: Build .dmg
+        env:
+          APPLE_SIGN_ID: ${{ steps.sign.outputs.have_cert == 'true' && secrets.MACOS_SIGN_ID || '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: npm run package:dmg
+      - uses: actions/upload-artifact@v4
+        with: { name: dmg, path: dist/*.dmg, if-no-files-found: error }
+      - if: always()
+        run: rm -f /tmp/cert.p12
+
+  windows:
+    runs-on: windows-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Build .exe
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          # Inno Setup ships on the windows-latest image.
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" scripts\installer\windows-installer.iss
+      - uses: actions/upload-artifact@v4
+        with: { name: exe, path: dist/*.exe, if-no-files-found: error }
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [zxp, macos, windows]
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+      - run: ls -R artifacts
+      - name: Flatten artifacts and checksum them
+        run: |
+          mkdir -p release
+          find artifacts -type f -exec cp {} release/ \;
+          cd release && shasum -a 256 * > checksums.txt && cat checksums.txt
+      - name: Compose release notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed "s/__VERSION__/$VERSION/g" .github/RELEASE_TEMPLATE.md > /tmp/notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          body_path: /tmp/notes.md
+          # A tag like v2.0.0-rc1 must not be presented as a stable release.
+          prerelease: ${{ contains(github.ref_name, '-') }}

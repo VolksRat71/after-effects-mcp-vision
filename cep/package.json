@@ -1,0 +1,6 @@
+{
+  "name": "ae-mcp-vision-cep",
+  "private": true,
+  "//": "The repo root sets \"type\": \"module\", which would make every .js here an ES module. CEP's Node context uses CommonJS require(), so this file scopes the cep/ tree back to CommonJS. Without it the extension fails to load with 'require is not defined in ES module scope'.",
+  "type": "commonjs"
+}

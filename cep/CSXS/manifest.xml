@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExtensionManifest Version="12.0"
+    ExtensionBundleId="com.aemcpvision.bridge"
+    ExtensionBundleVersion="2.0.0"
+    ExtensionBundleName="AE MCP Vision"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+  <!--
+    Two extensions in one bundle, deliberately:
+
+      .server  headless, owns the Node HTTP server, auto-starts with AE.
+      .panel   optional status/debug view. Closing it kills nothing.
+
+    Splitting these means the MCP server does not depend on a human leaving a
+    panel open. If <StartOn> turns out to be unreliable on AE (it is the least
+    proven part of this design), the panel still exists as a manual boot path.
+  -->
+
+  <ExtensionList>
+    <Extension Id="com.aemcpvision.bridge.server" Version="2.0.0" />
+    <Extension Id="com.aemcpvision.bridge.panel"  Version="2.0.0" />
+  </ExtensionList>
+
+  <ExecutionEnvironment>
+    <HostList>
+      <!-- AE 22.0 floor: Layer.id / app.project.layerByID() land there, and
+           stable layer identity is the basis of all addressing in v2. -->
+      <Host Name="AEFT" Version="[22.0,99.9]" />
+    </HostList>
+    <LocaleList><Locale Code="All" /></LocaleList>
+    <RequiredRuntimeList>
+      <RequiredRuntime Name="CSXS" Version="9.0" />
+    </RequiredRuntimeList>
+  </ExecutionEnvironment>
+
+  <DispatchInfoList>
+
+    <Extension Id="com.aemcpvision.bridge.server">
+      <DispatchInfo>
+        <Resources>
+          <MainPath>./server.html</MainPath>
+          <ScriptPath>./host/host.jsx</ScriptPath>
+          <CEFCommandLine>
+            <Parameter>--enable-nodejs</Parameter>
+            <Parameter>--mixed-context</Parameter>
+          </CEFCommandLine>
+        </Resources>
+        <Lifecycle>
+          <AutoVisible>false</AutoVisible>
+          <StartOn>
+            <Event>com.adobe.csxs.events.ApplicationActivate</Event>
+          </StartOn>
+        </Lifecycle>
+        <UI>
+          <Type>Custom</Type>
+          <Geometry><Size><Height>1</Height><Width>1</Width></Size></Geometry>
+        </UI>
+      </DispatchInfo>
+    </Extension>
+
+    <Extension Id="com.aemcpvision.bridge.panel">
+      <DispatchInfo>
+        <Resources>
+          <MainPath>./index.html</MainPath>
+          <ScriptPath>./host/host.jsx</ScriptPath>
+          <CEFCommandLine>
+            <Parameter>--enable-nodejs</Parameter>
+            <Parameter>--mixed-context</Parameter>
+          </CEFCommandLine>
+        </Resources>
+        <Lifecycle>
+          <AutoVisible>true</AutoVisible>
+        </Lifecycle>
+        <UI>
+          <Type>Panel</Type>
+          <Menu>AE MCP Vision</Menu>
+          <Geometry><Size><Height>320</Height><Width>420</Width></Size></Geometry>
+        </UI>
+      </DispatchInfo>
+    </Extension>
+
+  </DispatchInfoList>
+</ExtensionManifest>

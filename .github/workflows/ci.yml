@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # CEP 12 ships its own Node. We cannot pin that, so the code stays
+        # dependency-free and is verified across a range instead.
+        node: ['18', '20', '22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+  package:
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build unsigned package
+        run: npm run package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ae-mcp-vision-unsigned-zxp
+          path: dist/*.zxp
+          if-no-files-found: error
+
+  # The ExtendScript host can only be exercised against a real After Effects,
+  # which no hosted runner has. `npm run test:integration` is the manual gate
+  # before a release; this job exists so that fact is visible in the run, not
+  # buried in a doc nobody opens.
+  integration-notice:
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - name: Integration tests require a local After Effects
+        run: |
+          echo "::notice title=Integration tests not run::The 31-case ExtendScript suite needs a live After Effects and cannot run on a hosted runner. Run 'npm run test:integration' locally before tagging a release."
