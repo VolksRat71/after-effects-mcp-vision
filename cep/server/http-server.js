@@ -186,8 +186,23 @@ function createServer(callHost, options = {}) {
     res.setHeader('Access-Control-Allow-Origin', 'null');
     res.setHeader('X-Content-Type-Options', 'nosniff');
 
-    // A present Origin means a browser is calling. Always refuse.
-    if (req.headers.origin) {
+    /*
+     * Refuse real web origins, but NOT the extension's own panel.
+     *
+     * "A present Origin means a browser is calling" was too broad: a CEP panel
+     * IS a browser (CEF), it is the first-party client, and a file:// page
+     * sends `Origin: null` on every fetch. So the status panel could never
+     * reach its own server - it reported "No server on port 8791", then tried
+     * to start a second one, which failed because the headless extension
+     * already held the port. Verified on a clean install of 2.0.0.
+     *
+     * `null` and `file://` are what sandboxed/local documents send. A page
+     * served from a site always sends a concrete scheme://host, so rebinding
+     * and CSRF from a real web page are still refused - and the bearer token
+     * remains the actual gate either way.
+     */
+    const origin = req.headers.origin;
+    if (origin && origin !== 'null' && !origin.startsWith('file://')) {
       json(res, 403, { ok: false, error: { code: 'forbidden_origin', message: 'Cross-origin requests are not accepted' } });
       return;
     }
