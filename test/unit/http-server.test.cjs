@@ -234,3 +234,29 @@ test('auth follows the token file, not a value cached at startup', async () => {
     assert.strictEqual(withStale.status, 401, 'the superseded token must stop working');
   });
 });
+
+/*
+ * The panel is a CEP page, so its fetch always carries an Origin. Rejecting
+ * every Origin meant the status panel could never see its own server: it
+ * showed "No server on port 8791", then tried to start a second one and failed
+ * because the headless extension already held the port. Found on a clean
+ * install of 2.0.0.
+ */
+test('a CEP panel origin reaches the server; a web origin is still refused', async () => {
+  await withServer(async ({ port, token }) => {
+    const call = (origin) =>
+      fetch(`http://127.0.0.1:${port}/health`, {
+        headers: { Authorization: `Bearer ${token}`, Origin: origin },
+      });
+
+    for (const ok of ['null', 'file://', 'file:///Users/x/panel.html']) {
+      const res = await call(ok);
+      assert.strictEqual(res.status, 200, `panel origin ${ok} must reach its own server`);
+    }
+
+    for (const bad of ['https://evil.example', 'http://localhost:3000', 'http://127.0.0.1:8791']) {
+      const res = await call(bad);
+      assert.strictEqual(res.status, 403, `web origin ${bad} must stay refused`);
+    }
+  });
+});

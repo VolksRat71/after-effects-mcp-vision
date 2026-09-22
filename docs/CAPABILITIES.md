@@ -6,6 +6,12 @@ Every verdict here comes from a probe that ran. None are inferred from the Adobe
 
 **54 pass · 4 fail · 5 review** across 63 probes.
 
+> **Last measured against the 2.0.0 tool surface (2026-09-19).** These verdicts
+> predate `ae_layout` and the four-corner pin probe (A11), so the layout rows in
+> particular understate what ships today: several of them were closed by
+> `ae_layout` and have not been re-run. Treat a `fail` here as "was not reachable
+> when last measured", not as "cannot be done". Re-measure with `npm run probe`.
+
 - **pass** — an agent can do it with the shipped tools, no escape hatch.
 - **fail** — not reachable. Needs a named tool or command.
 - **review** — reachable but depends on machine state, or the tool does not compose it so the caller does the work by hand.
