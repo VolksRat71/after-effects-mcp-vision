@@ -37,6 +37,8 @@ Source: "..\..\cep\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs cre
 ; MIT requires the notice to travel with every copy, and an installed
 ; extension is a copy. This is a derivative of Dakkshin/after-effects-mcp.
 Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+; Docs served as MCP resources; they live outside cep/, so ship them too.
+Source: "..\..\docs\*.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 
 [Registry]
 ; Unsigned extensions require PlayerDebugMode, set per CSXS major version.
