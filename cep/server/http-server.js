@@ -308,6 +308,21 @@ function createServer(callHost, options = {}) {
       return;
     }
 
+    /*
+     * Streamable HTTP: a GET on the MCP endpoint asks for an optional
+     * server-to-client SSE stream. The spec says a server that does not offer
+     * one MUST answer 405, which clients read as "no stream, carry on". We used
+     * to fall through to 404, which mcp-remote logs as "Failed to open SSE
+     * stream" on every Claude Desktop connect, and which a stricter client could
+     * take to mean the endpoint does not exist. DELETE is session termination;
+     * the spec allows 405 there too, and there are no sessions to end.
+     */
+    if ((req.url === '/mcp' || req.url === '/') && (req.method === 'GET' || req.method === 'DELETE')) {
+      res.writeHead(405, { Allow: 'POST', 'Content-Length': 0 });
+      res.end();
+      return;
+    }
+
     json(res, 404, { ok: false, error: { code: 'not_found', message: `${req.method} ${req.url}` } });
   });
 
