@@ -21,23 +21,48 @@ engine, everything else runs on CEP's Node.** They are different languages with
 the same file extension family, and mixing them up is the easiest mistake to
 make here.
 
+## Why it is built this way
+
+The MCP server runs **inside** After Effects, in a headless CEP extension, and
+reaches ExtendScript through `CSInterface.evalScript`:
+
+```
+MCP client --HTTP--> Node server (headless CEP extension) --evalScript--> ExtendScript --> app.project
+```
+
+Each alternative was measured and rejected:
+
+- **`aerender`** can run scripts through an undocumented `-r` flag, but every
+  call cold-boots After Effects and it cannot touch the project the user has
+  open. The build-look-correct loop goes from seconds to minutes.
+- **AppleScript `DoScript`** returns `app.exitCode`, a single integer, not the
+  script's result. `evalScript` returns a string, which is the whole reason for
+  CEP.
+- **The MCP SDK** needs Node 18; CEP 12 ships Node 17.7.2. MCP over HTTP is a
+  small JSON-RPC surface, so it is implemented directly, with no `node_modules`.
+- **UXP** hosts panels in After Effects but has no public scripting API there
+  yet. The host layer sits behind the transport so a future port is not a
+  rewrite.
+
 ## Dev loop
 
 ```bash
 npm run install:dev      # macOS   (npm run install:dev:win on Windows)
 ```
 
-Then restart After Effects. `cep/` is symlinked, so edits are live — but *how*
-live depends on which half you touched:
+Then restart After Effects. `cep/` is symlinked, so edits are on disk
+immediately — but what picks them up depends on which process loads the file:
 
 | Changed | To see it |
 |---|---|
-| `cep/client/**`, `cep/server/**`, `*.html` | Close and reopen the panel |
-| `cep/host/**` | Restart After Effects — `ScriptPath` loads once at extension load |
+| `cep/host/**` | `ae_diagnostics {command: "reloadHost"}`, or restart After Effects |
+| `cep/server/**`, `cep/server.html`, `cep/client/{server-boot,start-server,bridge}.js` | Restart After Effects |
+| `cep/index.html`, `cep/client/panel.js` | Close and reopen the panel |
 
-That second row is why the integration suite `$.evalFile`s the host directly
-rather than going through the running extension: it picks up host changes
-without a restart.
+The server runs in the **headless** extension, which starts once with After
+Effects, so reopening the panel does not reload it. The host is compiled once
+per extension start too, which is what `reloadHost` exists to work around —
+without it, on-disk source and running behaviour can silently disagree.
 
 ## Verifying
 
@@ -80,8 +105,8 @@ Beyond syntax:
 2. If it mutates the project, add it to `__mcp_mutating` in `cep/host/ops.jsx`
    so it runs inside an undo group.
 3. Expose it through a tool in `cep/server/tools.js`, or as a new `command` on
-   an existing one. Prefer widening an existing tool: eight fat tools beat
-   twenty thin ones for a model choosing between them.
+   an existing one. Prefer widening an existing tool: a few fat tools beat
+   many thin ones for a model choosing between them.
 4. Write the description for a model that has never seen After Effects. State
    the token cost if the output can be large, and the idiom if there is a wrong
    way to use it.

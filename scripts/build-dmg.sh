@@ -32,6 +32,10 @@ mkdir -p "$APP/Contents/Resources/payload"
 # is a copy. This is a derivative of Dakkshin/after-effects-mcp.
 cp "$ROOT/LICENSE" "$APP/Contents/Resources/payload/LICENSE"
 
+# Docs served as MCP resources; they live outside cep/, so copy them in.
+mkdir -p "$APP/Contents/Resources/payload/docs"
+cp "$ROOT"/docs/*.md "$APP/Contents/Resources/payload/docs/"
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

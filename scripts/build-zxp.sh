@@ -38,6 +38,12 @@ mkdir -p "$STAGE"
 # licence breach, not a cosmetic omission.
 cp "$ROOT/LICENSE" "$STAGE/LICENSE"
 
+# The MCP resources (ae-vision://install, recipes, capabilities) read these at
+# runtime. They live outside cep/, so without this every packaged install
+# answered them with "file is missing".
+mkdir -p "$STAGE/docs"
+cp "$ROOT"/docs/*.md "$STAGE/docs/"
+
 # Keep the manifest version in step with package.json so a released .zxp cannot
 # claim a version the code does not have.
 python3 - "$STAGE/CSXS/manifest.xml" "$VERSION" <<'PY'

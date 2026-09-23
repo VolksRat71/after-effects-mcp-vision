@@ -1,5 +1,5 @@
 /*
- * The MCP tool surface: eight verb-dispatching tools over ~18 host ops.
+ * The MCP tool surface: verb-dispatching tools, each covering several host ops.
  *
  * Shaped after the Rive MCP, which this project treats as the reference for
  * what "an agent can really build and see in here" looks like:

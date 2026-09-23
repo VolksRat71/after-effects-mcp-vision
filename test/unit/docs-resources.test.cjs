@@ -2,7 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 
-const { listResources, readResource, RESOURCES } = require('../../cep/server/docs.js');
+const path = require('node:path');
+const os = require('node:os');
+const { listResources, readResource, resolveDoc, RESOURCES } = require('../../cep/server/docs.js');
 const { createMcpHandler } = require('../../cep/server/mcp.js');
 
 const handler = createMcpHandler({ tools: [], callTool: async () => ({}) });
@@ -10,7 +12,44 @@ const rpc = (method, params) => handler(JSON.stringify({ jsonrpc: '2.0', id: 1, 
 
 test('every advertised resource actually exists on disk', () => {
   for (const r of RESOURCES) {
-    assert.ok(fs.existsSync(r.file), `${r.uri} points at a missing file: ${r.file}`);
+    assert.ok(fs.existsSync(resolveDoc(r.file)), `${r.uri} points at a missing file: ${r.file}`);
+  }
+});
+
+/*
+ * The packaged layout is <ext>/server/docs.js beside <ext>/docs/. Only the dev
+ * layout (<repo>/docs, one level higher) used to be checked, so every release
+ * answered all three resources with "file is missing" while the dev checkout
+ * looked fine. Build that packaged layout in a temp dir and read through it.
+ */
+test('resources resolve in the packaged layout, not just a dev checkout', () => {
+  const ext = fs.mkdtempSync(path.join(os.tmpdir(), 'ae-ext-'));
+  try {
+    fs.mkdirSync(path.join(ext, 'server'));
+    fs.copyFileSync(path.join(__dirname, '..', '..', 'cep', 'server', 'docs.js'), path.join(ext, 'server', 'docs.js'));
+    fs.mkdirSync(path.join(ext, 'docs'));
+    for (const f of ['INSTALL.md', 'RECIPES.md', 'CAPABILITIES.md']) {
+      fs.copyFileSync(path.join(__dirname, '..', '..', 'docs', f), path.join(ext, 'docs', f));
+    }
+    const packaged = require(path.join(ext, 'server', 'docs.js'));
+    for (const r of packaged.RESOURCES) {
+      const text = packaged.readResource(r.uri).contents[0].text;
+      assert.doesNotMatch(text, /missing from this install/, `${r.uri} must resolve inside a packaged extension`);
+    }
+  } finally {
+    fs.rmSync(ext, { recursive: true, force: true });
+  }
+});
+
+test('every packager ships docs/ into the extension', () => {
+  const root = path.join(__dirname, '..', '..');
+  const checks = {
+    'scripts/build-zxp.sh': /docs\/\*\.md/,
+    'scripts/build-dmg.sh': /docs\/\*\.md/,
+    'scripts/installer/windows-installer.iss': /docs\\\*\.md/,
+  };
+  for (const [f, re] of Object.entries(checks)) {
+    assert.match(fs.readFileSync(path.join(root, f), 'utf8'), re, `${f} must copy docs/*.md into the package`);
   }
 });
 

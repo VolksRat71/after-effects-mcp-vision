@@ -2,137 +2,207 @@
 
 ## Requirements
 
-- **After Effects 22.0 or later.** This is a hard floor, not a recommendation. Layers are
-  addressed by `Layer.id`, which Adobe added in 22.0, and stable ids are the basis of
-  every tool here. There is no fallback for earlier versions.
-- macOS 10.14+ or Windows 10/11.
-- An MCP client: Claude Code, Claude Desktop, or Codex.
+- **After Effects 2022 (22.0) or later.** A hard floor: layers are addressed by
+  `Layer.id`, which Adobe added in 22.0.
+- macOS or Windows 10/11.
+- For Claude Desktop, or any client that needs the stdio bridge: **Node.js 18+**.
 
-**Quit After Effects before installing.** It reads the extensions folder at startup, so
-installing underneath a running copy leaves a half-loaded state that looks like a broken
-install rather than a pending one.
+## Install
 
-## Pick an installer
+Quit After Effects first. It reads the extensions folder at startup, so an
+install underneath a running copy looks broken until the next restart.
 
-Everything installs into your own user folder. On **macOS 15 and later**, though,
-*launching* an unsigned installer requires an administrator password even though the
-install itself does not — see below. The `.zxp` route avoids that entirely and is the
-path of least resistance on a modern Mac.
-
-| Platform | File | How |
+| Platform | Download from [Releases](../../releases) | Then |
 |---|---|---|
-| macOS | `AE-MCP-Vision-<version>-macOS.dmg` | Open, double-click **Install AE MCP Vision** |
+| macOS | `AE-MCP-Vision-<version>-macOS.dmg` | Open it, double-click **Install AE MCP Vision** |
 | Windows | `AE-MCP-Vision-<version>-Windows.exe` | Run it |
-| Either | `ae-mcp-vision-<version>.zxp` | Drag onto [ZXPInstaller](https://zxpinstaller.com/) |
 
-Downloads are on the [Releases page](../../releases).
+Both install into your own user folder and turn on `PlayerDebugMode`, which After
+Effects requires before it will load an unsigned extension.
 
-### The unsigned-software warning
+**About the `.zxp`.** It is also attached to each release, but it is unsigned.
+In testing, Adobe's own installer (`UnifiedPluginInstallerAgent`) hung without
+installing it, and even when extracted by hand it only loads once
+`PlayerDebugMode` is set — which the `.dmg` and `.exe` do for you and ZXP tools
+do not. Use it only if you already know you need it, and set the flag yourself:
 
-The installers are not code-signed, so your OS will object the first time. This is
-expected and is not specific to this download.
+```bash
+# macOS
+for v in 10 11 12 13; do defaults write com.adobe.CSXS.$v PlayerDebugMode 1; done
+```
 
-- **macOS 15 (Sequoia) and later — this now costs four steps and an admin password.**
-  Apple removed the old right-click > Open bypass. You must: (1) try to open it once, so
-  macOS records the block; (2) go to **System Settings > Privacy & Security > Security**
-  and click **Open Anyway**; (3) click **Open Anyway** again in the confirmation; (4) enter
-  an **administrator username and password**.
+```bat
+:: Windows, in Command Prompt
+for %v in (10 11 12 13) do reg add HKCU\Software\Adobe\CSXS.%v /v PlayerDebugMode /t REG_SZ /d 1 /f
+```
 
-  If that is more than you want to deal with, **use the `.zxp` instead** — ZXPInstaller is
-  itself a notarized app, so the `.zxp` is data it reads rather than code Gatekeeper
-  evaluates, and none of the above applies.
-- **macOS 14 and earlier:** right-click the app > **Open**, then **Open** in the dialog.
-- **Windows:** SmartScreen shows *"Windows protected your PC"*. Click **More info** then
-  **Run anyway**. No admin password is required.
+## First-run warnings
 
-Signing certificates that work with Adobe's tooling are, at present, largely unobtainable:
-since June 2023 CAs must keep code-signing keys on hardware tokens, while Adobe's
-`ZXPSignCmd` requires an exportable `.p12`. [Adobe's own tracking issue][zxp-issue] has
-been open since September 2023. Building from source avoids the warning entirely.
+The installers are not code-signed, so your OS objects the first time.
 
-[zxp-issue]: https://github.com/Adobe-CEP/CEP-Resources/issues/499
+- **macOS 15 (Sequoia) and later.** Right-click > Open no longer works. Try to
+  open the installer once so macOS records the block, then go to
+  **System Settings > Privacy & Security**, click **Open Anyway**, confirm, and
+  enter an **administrator password**. The install itself still goes to your
+  user folder.
+- **macOS 14 and earlier.** Right-click the installer > **Open**, then **Open**.
+- **Windows.** SmartScreen shows *"Windows protected your PC"*. Click **More
+  info**, then **Run anyway**. No admin password is needed.
 
-## Connect your client
+A Developer ID certificate would remove this; the release pipeline supports one
+but the project does not have one yet.
 
-Open After Effects, then **Window > Extensions > AE MCP Vision**. Pick your client's tab
-and press **Copy config**. The panel fills in your real port and token.
+## Connect a client
 
-Your token lives in `~/.ae-mcp-vision/token` (`%USERPROFILE%\.ae-mcp-vision\token` on
-Windows), is readable only by you, and **persists across restarts** — paste a config once
-and it keeps working.
+Open After Effects first. The server starts on its own and creates your token.
+
+**Your token** is in `~/.ae-mcp-vision/token` on macOS and
+`%USERPROFILE%\.ae-mcp-vision\token` on Windows. It persists across restarts, so
+a config you set up once keeps working. The easiest way to get a ready-made
+config is **Window > Extensions > AE MCP Vision**, which fills in your port and
+token for each client below.
+
+In the examples, replace `<token>` with the contents of that file.
 
 ### Claude Code
 
-Add to `.mcp.json` in your project, or `~/.claude.json` to have it everywhere:
+```bash
+claude mcp add --transport http --scope user ae-vision http://127.0.0.1:8791/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+`--scope user` makes it available in every project; leave it off to add it to
+the current project only. On macOS you can write
+`$(cat ~/.ae-mcp-vision/token)` in place of `<token>`.
+
+### Claude Desktop
+
+Claude Desktop's config file only launches local (stdio) servers, so it reaches
+this HTTP server through [`mcp-remote`](https://github.com/geelen/mcp-remote),
+a small bridge run by `npx`. Open **Settings > Developer > Edit Config** and add:
 
 ```json
 {
   "mcpServers": {
     "ae-vision": {
-      "type": "http",
-      "url": "http://127.0.0.1:8791/mcp",
-      "headers": { "Authorization": "Bearer <your token>" }
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://127.0.0.1:8791/mcp",
+               "--header", "Authorization:${AUTH_HEADER}",
+               "--transport", "http-only"],
+      "env": { "AUTH_HEADER": "Bearer <token>" }
     }
   }
 }
 ```
 
-### Claude Desktop
+Then fully quit and reopen Claude Desktop. The token goes in `env` rather than
+directly in `args` because some clients, Claude Desktop on Windows among them,
+mangle spaces inside arguments.
 
-**Settings > Developer > Edit Config**, add the same block as above, then restart Claude
-Desktop.
+A custom connector added under **Settings > Connectors** will not work: Claude
+reaches connectors from Anthropic's servers, which cannot see your machine.
 
-### Codex CLI / Desktop
+### Codex and the ChatGPT desktop app
 
-Codex uses TOML and reads the token from an environment variable rather than the config
-file. Add to `~/.codex/config.toml`:
+The Codex CLI, the Codex IDE extension and the ChatGPT desktop app share one
+config file, `~/.codex/config.toml`. Add:
 
 ```toml
 [mcp_servers.ae_vision]
 url = "http://127.0.0.1:8791/mcp"
-bearer_token_env_var = "AE_MCP_TOKEN"
+http_headers = { Authorization = "Bearer <token>" }
 ```
 
-Then export the token in your shell profile:
+Codex asks before running MCP tools unless told otherwise. To let this server's
+tools run without a prompt — required for non-interactive `codex exec`, which
+cannot ask — add one line to the same table:
+
+```toml
+[mcp_servers.ae_vision]
+url = "http://127.0.0.1:8791/mcp"
+http_headers = { Authorization = "Bearer <token>" }
+default_tools_approval_mode = "approve"
+```
+
+**Avoid `bearer_token_env_var` here.** It works only when Codex inherits that
+environment variable from your shell. The IDE extension and the ChatGPT desktop
+app are not launched from a shell, so they send no token and every call fails
+with 401 — while `codex mcp list` still reports the server as healthy. The static
+header above works everywhere.
+
+ChatGPT connectors added on chatgpt.com cannot be used: they are called from
+OpenAI's servers, which cannot reach a server on your machine.
+
+### Any other MCP client
+
+Use your client's "add MCP server" setting with whichever of these it supports.
+
+**If it supports Streamable HTTP with custom headers**, point it directly at the
+server:
+
+| Setting | Value |
+|---|---|
+| Transport | Streamable HTTP |
+| URL | `http://127.0.0.1:8791/mcp` |
+| Header | `Authorization: Bearer <token>` |
+| Auth | None beyond the header — there is no OAuth flow |
+
+**If it only launches local (stdio) servers**, give it the bridge as the command:
+
+```
+command:  npx
+args:     -y mcp-remote http://127.0.0.1:8791/mcp --header Authorization:${AUTH_HEADER} --transport http-only
+env:      AUTH_HEADER=Bearer <token>
+```
+
+Most clients that use a JSON `mcpServers` file accept exactly the Claude Desktop
+block above.
+
+**What will not work:** anything that runs in a browser tab or on someone else's
+server. The server listens only on your own machine and refuses requests from
+web origins.
+
+## Check it works
+
+Ask your agent to *"run `ae_query` with `sessionInfo`"* — it should return your
+After Effects version and your compositions. Or check directly:
 
 ```bash
-export AE_MCP_TOKEN="<your token>"
+curl -H "Authorization: Bearer $(cat ~/.ae-mcp-vision/token)" http://127.0.0.1:8791/health
 ```
 
-## Checking it works
+## Troubleshooting
 
-Ask your client to run `ae_query` with `command: "sessionInfo"`. You should get your After
-Effects version and a list of compositions.
+**Connection refused, or "nothing listening on 8791".** After Effects is not
+running. The server lives inside it, so it exists only while After Effects is
+open.
 
-If you would rather check directly:
+**The panel says "No server on port 8791" while your client works.** A bug in
+2.0.0 that stopped the panel reaching its own server. Install 2.0.1 or later.
 
-```bash
-curl -H "Authorization: Bearer $(cat ~/.ae-mcp-vision/token)" \
-     http://127.0.0.1:8791/health
-```
+**401 Unauthorized.** Your config's token does not match the token file — most
+often because `~/.ae-mcp-vision/` was deleted and a new token was created. Copy
+the current one in again. (Codex users: see the `bearer_token_env_var` note
+above.)
 
-## If something is wrong
+**The panel is missing from Window > Extensions.** The install did not happen, or
+After Effects was running during it. Quit After Effects and run the installer
+again.
 
-**The panel is not under Window > Extensions.** The extension did not install, or After
-Effects was running during installation. Quit After Effects and run the installer again.
+**Port 8791 is taken by something else.** After Effects reads `AE_MCP_PORT` from
+its own environment. On macOS, apps opened from the Dock do not see shell
+variables, so use `launchctl setenv AE_MCP_PORT 8795` and restart After Effects;
+on Windows, set it as a user environment variable. Update your client's URL to
+match.
 
-**The panel says "nothing listening".** Another process holds port 8791. Set the
-`AE_MCP_PORT` environment variable and restart After Effects.
-
-**Your client reports 401.** The token changed — most likely you rotated it. Re-copy the
-config from the panel.
-
-**The panel says "host ping failed".** The ExtendScript side did not load. Please
-[open an issue](../../issues) with the contents of
-`~/.ae-mcp-vision/` and your After Effects version.
-
-**After Effects is frozen.** Something threw where it should not have and a modal dialog
-is waiting behind the main window. Click OK, then please report it — that is a real
-defect, not expected behaviour.
+**After Effects is frozen.** A modal dialog is waiting behind the main window.
+Click OK, then please [open an issue](../../issues) — that is a bug.
 
 ## Uninstalling
 
-- **macOS:** delete `~/Library/Application Support/Adobe/CEP/extensions/com.aemcpvision.bridge`
+- **macOS:** delete
+  `~/Library/Application Support/Adobe/CEP/extensions/com.aemcpvision.bridge`
 - **Windows:** Settings > Apps > **AE MCP Vision** > Uninstall
 
-Then delete `~/.ae-mcp-vision/` to remove your token.
+Then delete `~/.ae-mcp-vision/` to remove your token, and remove the server from
+your client's config.

@@ -39,39 +39,65 @@ function readToken() {
 }
 
 /*
- * Client configs. Three shapes, because the clients genuinely differ:
- * Claude embeds the token in JSON, while Codex takes TOML and reads the token
- * from an environment variable rather than the file.
+ * Client configs, one per way a client can reach this server. Each was
+ * verified against the real client, because the earlier versions were not:
+ *
+ * - Claude Desktop's config file only launches stdio servers, so pasting the
+ *   HTTP block did nothing. It needs the mcp-remote bridge.
+ * - Codex's bearer_token_env_var only works when Codex inherits the variable
+ *   from a shell. The IDE extension and the ChatGPT desktop app share the same
+ *   config.toml but are not launched from a shell, so they sent no token and
+ *   got 401 - while `codex mcp list` still showed the server as healthy. A
+ *   static http_headers entry works in all three.
  *
  * The token persists across After Effects restarts, so anything pasted from
- * here keeps working - that is the whole reason it is no longer per-launch.
+ * here keeps working.
  */
 function clientConfigs(port, token) {
   const url = `http://127.0.0.1:${port}/mcp`;
   const t = token || '<open After Effects to generate a token>';
 
-  const claudeJson = JSON.stringify(
-    { mcpServers: { 'ae-vision': { type: 'http', url, headers: { Authorization: `Bearer ${t}` } } } },
+  // The token rides in env, not args: Claude Desktop on Windows (and some other
+  // clients) mangle spaces inside arguments.
+  const bridge = JSON.stringify(
+    { mcpServers: { 'ae-vision': {
+      command: 'npx',
+      args: ['-y', 'mcp-remote', url, '--header', 'Authorization:${AUTH_HEADER}', '--transport', 'http-only'],
+      env: { AUTH_HEADER: `Bearer ${t}` },
+    } } },
     null, 2
   );
 
   return {
     'Claude Code': {
-      hint: 'Add to .mcp.json in your project, or ~/.claude.json for every project.',
-      body: claudeJson,
+      hint: 'Run in a terminal. --scope user adds it to every project.',
+      body:
+        `claude mcp add --transport http --scope user ae-vision ${url} \\\n` +
+        `  --header "Authorization: Bearer ${t}"`,
     },
     'Claude Desktop': {
-      hint: 'Settings > Developer > Edit Config, then restart Claude Desktop.',
-      body: claudeJson,
+      hint: 'Settings > Developer > Edit Config, merge this in, then quit and reopen Claude Desktop. Needs Node.js 18+.',
+      body: bridge,
     },
-    'Codex CLI / Desktop': {
-      hint: 'Add to ~/.codex/config.toml. Codex reads the token from the environment, so export it too.',
+    'Codex / ChatGPT': {
+      hint: 'Add to ~/.codex/config.toml. Shared by the Codex CLI, the IDE extension and the ChatGPT desktop app.',
       body:
         `[mcp_servers.ae_vision]\n` +
         `url = "${url}"\n` +
-        `bearer_token_env_var = "AE_MCP_TOKEN"\n\n` +
-        `# then, in your shell profile:\n` +
-        `export AE_MCP_TOKEN="${t}"`,
+        `http_headers = { Authorization = "Bearer ${t}" }\n` +
+        `# optional - run tools without asking (needed for codex exec):\n` +
+        `# default_tools_approval_mode = "approve"`,
+    },
+    'Other clients': {
+      hint: 'Use whichever your client supports. A client with a JSON mcpServers file can usually take the Claude Desktop block.',
+      body:
+        `Streamable HTTP\n` +
+        `  URL:     ${url}\n` +
+        `  Header:  Authorization: Bearer ${t}\n\n` +
+        `stdio only (bridge)\n` +
+        `  command: npx\n` +
+        `  args:    -y mcp-remote ${url} --header Authorization:\${AUTH_HEADER} --transport http-only\n` +
+        `  env:     AUTH_HEADER=Bearer ${t}`,
     },
   };
 }

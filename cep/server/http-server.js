@@ -24,10 +24,10 @@ const DEFAULT_PORT = 8791;
  * CSRF. Since every op here drives After Effects and touches the filesystem,
  * the port is authenticated:
  *
- *   - a per-launch bearer token, written 0600 for the local MCP client to read
+ *   - a bearer token, written 0600 and persisted across launches (see below)
  *   - Host must be exactly loopback:<port>, which defeats DNS rebinding
- *   - any request carrying an Origin is rejected outright; browsers cannot set
- *     Authorization cross-origin without a preflight, which we also reject
+ *   - any web Origin is rejected; only `null`/`file://`, which the extension's
+ *     own CEP panel sends, is allowed through - see the check in createServer
  */
 /*
  * The token lives in the user's home directory, not the temp dir, and PERSISTS
