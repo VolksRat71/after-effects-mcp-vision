@@ -285,3 +285,11 @@ test('the 405 is still behind authentication', async () => {
     assert.strictEqual(res.status, 401, 'an unauthenticated GET must not learn anything about the endpoint');
   });
 });
+
+test('health reports which bridge is running', async () => {
+  await withServer(async ({ port, token }) => {
+    const h = await (await fetch(`http://127.0.0.1:${port}/health`, { headers: { Authorization: `Bearer ${token}` } })).json();
+    assert.ok(h.bridge && h.bridge.version, 'health must carry the bridge version');
+    assert.ok(['dev', 'release'].includes(h.bridge.mode));
+  });
+});

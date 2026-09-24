@@ -320,6 +320,118 @@
             return { modes: [list.masks[0].mode, list.masks[1].mode] };
         });
 
+        /*
+         * Split calls. A job split by time range computed opacity transitions per
+         * call, so one call's trailing empty frame could leave another call's range
+         * stuck at opacity 0 - reported from a real roto run.
+         */
+        function opacityAt(layerId, t) {
+            return __mcp_layerById(layerId).property("ADBE Mask Parade").property(1).property("ADBE Mask Opacity").valueAtTime(t, false);
+        }
+        record("split calls: a later call's trailing empty frame does not hide an earlier range", function () {
+            var id = call("layers", { compId: scratchCompId, command: "createSolid", color: [1,1,1], name: "split1", width: 200, height: 200 }).id;
+            call("masks", { layerId: id, command: "add" });
+            var sq = [[10,10],[90,10],[90,90],[10,90]];
+            var a = [], b = [];
+            for (var f = 10; f <= 15; f++) { a.push({ time: f / 24, vertices: sq }); }                  // all visible, no opacity keys
+            for (var g = 0; g <= 5; g++) { b.push({ time: g / 24, vertices: g === 5 ? null : sq }); }   // ends EMPTY, called later
+            call("masks", { layerId: id, command: "setPathKeys", keys: a, hold: true });
+            var rb = call("masks", { layerId: id, command: "setPathKeys", keys: b, hold: true });
+            if (opacityAt(id, 12 / 24) !== 100) { throw new Error("earlier range is hidden: opacity " + opacityAt(id, 12 / 24) + " at frame 12"); }
+            if (opacityAt(id, 5 / 24) !== 0) { throw new Error("the empty frame is not hidden"); }
+            return { frame5: opacityAt(id, 5 / 24), frame12: opacityAt(id, 12 / 24), restored: rb.opacityRestoredAfterRange };
+        });
+        record("split calls: a later all-visible range shows even after an earlier trailing empty", function () {
+            var id = call("layers", { compId: scratchCompId, command: "createSolid", color: [1,1,1], name: "split2", width: 200, height: 200 }).id;
+            call("masks", { layerId: id, command: "add" });
+            var sq = [[10,10],[90,10],[90,90],[10,90]];
+            var a = [], b = [];
+            for (var f = 0; f <= 5; f++) { a.push({ time: f / 24, vertices: f === 5 ? null : sq }); }   // ends EMPTY
+            for (var g = 10; g <= 15; g++) { b.push({ time: g / 24, vertices: sq }); }                  // all visible, called later
+            call("masks", { layerId: id, command: "setPathKeys", keys: a, hold: true });
+            call("masks", { layerId: id, command: "setPathKeys", keys: b, hold: true });
+            if (opacityAt(id, 12 / 24) !== 100) { throw new Error("later visible range is stuck at " + opacityAt(id, 12 / 24)); }
+            if (opacityAt(id, 2 / 24) !== 100 || opacityAt(id, 5 / 24) !== 0) { throw new Error("the earlier range was disturbed"); }
+            return { frame2: opacityAt(id, 2 / 24), frame5: opacityAt(id, 5 / 24), frame12: opacityAt(id, 12 / 24) };
+        });
+
+        /*
+         * Collapsed empty frames, shaped like the roto job's "Gap 3": real shapes on
+         * three frames only, with a leading, an interior and a trailing empty run.
+         * Each run gets exactly one collapse key per edge and nothing in between,
+         * and a re-run with the same data rewrites in place without removing keys.
+         */
+        record("setPathKeys collapses every empty run, trailing included, one key per run edge", function () {
+            var id = call("layers", { compId: scratchCompId, command: "createSolid", color: [1,1,1], name: "gap3", width: 400, height: 400 }).id;
+            call("masks", { layerId: id, command: "add" });
+            var sq = [[10,10],[90,10],[90,90],[10,90]];
+            var real = { 5: true, 6: true, 12: true };
+            var keys = [];
+            for (var f = 0; f <= 30; f++) { keys.push({ time: f / 24, vertices: real[f] ? sq : null }); }
+            var r = call("masks", { layerId: id, command: "setPathKeys", keys: keys, hold: true });
+            var shape = __mcp_layerById(id).property("ADBE Mask Parade").property(1).property("ADBE Mask Shape");
+            var got = [];
+            for (var k = 1; k <= shape.numKeys; k++) { got.push(Math.round(shape.keyTime(k) * 24)); }
+            // runs 0-4, 7-11, 13-30: edges 0,4 / 7,11 / 13,30, plus the real 5,6,12
+            var want = [0, 4, 5, 6, 7, 11, 12, 13, 30];
+            if (got.join(",") !== want.join(",")) { throw new Error("key frames " + got.join(",") + ", wanted " + want.join(",")); }
+            if (r.pathKeys !== 3 || r.collapsedKeys !== 6) { throw new Error("pathKeys/collapsedKeys " + r.pathKeys + "/" + r.collapsedKeys); }
+            var mid = shape.valueAtTime(20 / 24, false).vertices;
+            if (mid[0][0] !== 50 || mid[2][0] !== 50 || mid[0][1] !== 50) { throw new Error("trailing run is not collapsed at frame 20: " + mid.toString()); }
+            var again = call("masks", { layerId: id, command: "setPathKeys", keys: keys, hold: true });
+            if (again.clearedPathKeys !== 0 || shape.numKeys !== 9) { throw new Error("re-run removed " + again.clearedPathKeys + " keys, numKeys " + shape.numKeys); }
+            keys[12].vertices = null;   // drop the last real shape: its key and the 13 edge have no replacement
+            var third = call("masks", { layerId: id, command: "setPathKeys", keys: keys, hold: true });
+            if (shape.numKeys !== third.pathKeys + third.collapsedKeys) { throw new Error("stale keys survived: numKeys " + shape.numKeys); }
+            return { frames: got.join(","), rerunCleared: again.clearedPathKeys, afterDrop: shape.numKeys };
+        });
+
+        record("project hygiene: rename an item, create folders, move items into them", function () {
+            var comp = call("project", { command: "createComp", name: "hygiene", width: 64, height: 64, duration: 1, frameRate: 24 });
+            var r = call("project", { command: "renameItem", itemId: comp.id, name: "hygiene renamed" });
+            if (__mcp_itemById(comp.id).name !== "hygiene renamed" || r.from !== "hygiene") { throw new Error("renameItem did not take"); }
+            var outer = call("project", { command: "createFolder", name: "__mcp_folder_outer" });
+            var inner = call("project", { command: "createFolder", name: "__mcp_folder_inner", parentFolderId: outer.folderId });
+            if (inner.parentFolderId !== outer.folderId) { throw new Error("nested folder has the wrong parent"); }
+            var mv = call("project", { command: "moveToFolder", itemIds: [comp.id, 999999], folderId: inner.folderId });
+            if (__mcp_itemById(comp.id).parentFolder.id !== inner.folderId) { throw new Error("item was not moved"); }
+            if (mv.moved.length !== 1 || mv.errors.length !== 1) { throw new Error("partial success not reported: " + JSON.stringify(mv)); }
+            expectFail("project", { command: "moveToFolder", itemIds: [comp.id], folderId: comp.id }, "op_failed");   // not a folder
+            return { renamed: r.to, nested: true, moved: mv.moved.length, reportedBadId: mv.errors.length };
+        });
+
+        record("replaceFootage relinks a footage item to a new file", function () {
+            // Make two real PNGs to import and swap between.
+            function png(name, color) {
+                var c = app.project.items.addComp(name, 32, 32, 1, 1, 24);
+                c.layers.addSolid(color, "s", 32, 32, 1);
+                var f = new File(Folder.temp.fsName + "/" + name + "_" + new Date().getTime() + ".png");
+                c.saveFrameToPng(0, f);
+                for (var w = 0; w < 200 && !(f.exists && f.length > 60); w++) { $.sleep(25); }
+                $.sleep(150);   // saveFrameToPng writes asynchronously
+                c.remove();
+                return f;
+            }
+            var fa = png("mcp_a", [1, 0, 0]), fb = png("mcp_b", [0, 0, 1]);
+            var item = app.project.importFile(new ImportOptions(fa));
+            var r = call("project", { command: "replaceFootage", itemId: item.id, path: fb.fsName });
+            if (__mcp_itemById(item.id).file.fsName !== fb.fsName) { throw new Error("footage still points at " + __mcp_itemById(item.id).file.fsName); }
+            expectFail("project", { command: "replaceFootage", itemId: item.id, path: Folder.temp.fsName + "/no-such-file.png" }, "op_failed");
+            fa.remove(); fb.remove();
+            return { from: File(r.from).name, to: File(r.to).name };
+        });
+
+        record("batch render: an existing output is refused with a hint unless overwrite is set", function () {
+            var comp = call("project", { command: "createComp", name: "batchow", width: 16, height: 16, duration: 0.1, frameRate: 24 });
+            var out = new File(Folder.temp.fsName + "/mcp_batch_ow_" + new Date().getTime() + ".mov");
+            out.open("w"); out.write("placeholder"); out.close();
+            var r = call("render", { command: "batch", jobs: [{ compId: comp.id, outputPath: out.fsName }] });
+            var msg = r.errors && r.errors[0] && r.errors[0].message;
+            if (!msg || msg.indexOf("would overwrite") < 0 || msg.indexOf("overwrite:true") < 0) { throw new Error("no refusal with a hint: " + JSON.stringify(r).slice(0, 200)); }
+            out.remove();
+            return { refused: true, hint: msg.slice(0, 60) };
+        });
+
         record("setEase applies temporal easing sized to the property", function () {
             call("keyframes", { layerId: textLayerId,
                 path: ["ADBE Transform Group", "ADBE Position"],

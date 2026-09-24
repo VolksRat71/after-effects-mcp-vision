@@ -31,6 +31,8 @@ function __mcp_layerSummary(l) {
 
 function __mcp_itemSummary(it) {
     var s = { id: it.id, name: it.name, typeName: it.typeName };
+    // The root folder is its own parent; report it as null so a flat list can be rebuilt as a tree.
+    try { s.parentFolderId = (it.parentFolder && it.parentFolder !== app.project.rootFolder) ? it.parentFolder.id : null; } catch (e) {}
     if (it instanceof CompItem) {
         s.type = "Composition";
         s.width = it.width; s.height = it.height;
@@ -166,12 +168,14 @@ var __mcp_queryOps = {
         var paths = args.paths || [];
         var values = [];
         var errors = [];
+        var hasTime = (args.time !== undefined && args.time !== null);
+        var evalTime = hasTime ? Number(args.time) : layer.containingComp.time;
         for (var i = 0; i < paths.length; i++) {
             try {
                 var p = __mcp_propByPath(layer, paths[i]);
                 var rec = {
                     path: paths[i],
-                    value: __mcp_readValue(p),
+                    value: __mcp_readValue(p, evalTime),
                     valueType: __mcp_valueTypeName(p)
                 };
                 try { if (p.numKeys) { rec.numKeys = p.numKeys; } } catch (e) {}
@@ -181,7 +185,7 @@ var __mcp_queryOps = {
                 errors.push({ path: paths[i], code: "unknown_path", message: String(e) });
             }
         }
-        return { layerId: layer.id, values: values, errors: errors };
+        return { layerId: layer.id, time: evalTime, values: values, errors: errors };
     },
 
     selection: function () {

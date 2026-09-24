@@ -80,7 +80,7 @@ function __mcp_exec(reqJson) {
                 out = __mcp_err("unknown_op", "No such op: " + op);
             } else {
                 // Mutating ops get an undo group so an AI batch is one Cmd-Z.
-                if (__mcp_mutating[op]) {
+                if (__mcp_wantsUndo(op, args)) {
                     app.beginUndoGroup("MCP: " + op);
                     undoOpen = true;
                 }
