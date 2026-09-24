@@ -20,6 +20,11 @@ install underneath a running copy looks broken until the next restart.
 Both install into your own user folder and turn on `PlayerDebugMode`, which After
 Effects requires before it will load an unsigned extension.
 
+**Upgrading from v1** (the original file-polling version)? Remove its panel,
+`mcp-bridge-auto.jsx`, from After Effects' `Scripts/ScriptUI Panels` folder. It
+does not conflict with v2, but it keeps polling for commands every two seconds
+and its "Check for Commands Now" window is easy to mistake for this one.
+
 **About the `.zxp`.** It is also attached to each release, but it is unsigned.
 In testing, Adobe's own installer (`UnifiedPluginInstallerAgent`) hung without
 installing it, and even when extracted by hand it only loads once
@@ -67,13 +72,16 @@ In the examples, replace `<token>` with the contents of that file.
 ### Claude Code
 
 ```bash
-claude mcp add --transport http --scope user ae-vision http://127.0.0.1:8791/mcp \
-  --header "Authorization: Bearer <token>"
+claude mcp add --transport http --scope user ae-vision http://127.0.0.1:8791/mcp --header "Authorization: Bearer <token>"
 ```
 
-`--scope user` makes it available in every project; leave it off to add it to
-the current project only. On macOS you can write
-`$(cat ~/.ae-mcp-vision/token)` in place of `<token>`.
+Keep it on one line: a `\` line break works in bash but not in PowerShell or
+cmd. `--scope user` makes it available in every project; leave it off to add it
+to the current project only.
+
+To read the token straight from its file instead of pasting it, use
+`$(cat ~/.ae-mcp-vision/token)` in macOS Terminal or Git Bash, or
+`$(Get-Content ~/.ae-mcp-vision/token)` in PowerShell, in place of `<token>`.
 
 ### Claude Desktop
 
