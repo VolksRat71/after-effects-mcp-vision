@@ -44,17 +44,9 @@ cp "$ROOT/LICENSE" "$STAGE/LICENSE"
 mkdir -p "$STAGE/docs"
 cp "$ROOT"/docs/*.md "$STAGE/docs/"
 
-# Keep the manifest version in step with package.json so a released .zxp cannot
-# claim a version the code does not have.
-python3 - "$STAGE/CSXS/manifest.xml" "$VERSION" <<'PY'
-import re, sys
-path, version = sys.argv[1], sys.argv[2]
-xml = open(path).read()
-xml = re.sub(r'(ExtensionBundleVersion=")[^"]+(")', rf'\g<1>{version}\g<2>', xml)
-xml = re.sub(r'(<Extension Id="[^"]+"\s+Version=")[^"]+(")', rf'\g<1>{version}\g<2>', xml)
-open(path, 'w').write(xml)
-print(f"manifest stamped to {version}")
-PY
+# The manifest version comes from cep/CSXS/manifest.xml itself, kept in step
+# with package.json by scripts/sync-version.mjs (run by `npm version`) and
+# enforced by test/unit/packaging.test.cjs - so all three packagers agree.
 
 SIGNCMD="${ZXPSIGNCMD:-$(command -v ZXPSignCmd || true)}"
 

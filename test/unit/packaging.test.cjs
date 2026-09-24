@@ -16,10 +16,6 @@ test('the package excludes .debug, which opens remote-debugging ports', () => {
   assert.match(buildScript, /--exclude='\.debug'/);
 });
 
-test('the package stamps the manifest from package.json', () => {
-  assert.match(buildScript, /ExtensionBundleVersion/);
-});
-
 test('signing is optional so a fork without secrets still builds', () => {
   assert.match(buildScript, /UNSIGNED/);
 });
@@ -61,4 +57,27 @@ test('Gatekeeper instructions match modern macOS, where right-click Open was rem
     assert.match(doc, /administrator|admin password/i,
       `${f} must state that macOS 15+ asks for an admin password - "no admin needed" is only true of the install destination`);
   }
+});
+
+/*
+ * The manifest is what CEP and extension managers report as the installed
+ * version. Only the .zxp build used to stamp it, so every .dmg and .exe
+ * reported "2.0.0" regardless of the release - noticed when an installed 2.0.2
+ * claimed to be 2.0.0. The release workflow runs this suite before building,
+ * so a drifted tag cannot ship.
+ */
+test('manifest versions match package.json', () => {
+  const { version } = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  const xml = fs.readFileSync(path.join(ROOT, 'cep', 'CSXS', 'manifest.xml'), 'utf8');
+  const bundle = xml.match(/ExtensionBundleVersion="([^"]+)"/)[1];
+  const exts = [...xml.matchAll(/<Extension Id="[^"]+"\s+Version="([^"]+)"/g)].map((m) => m[1]);
+  assert.strictEqual(bundle, version, 'ExtensionBundleVersion drifted - run: node scripts/sync-version.mjs');
+  assert.ok(exts.length >= 2, 'expected the server and panel extension entries');
+  for (const v of exts) assert.strictEqual(v, version, 'an <Extension> Version drifted - run: node scripts/sync-version.mjs');
+});
+
+test('npm version keeps the manifest in step automatically', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  assert.match(pkg.scripts.version || '', /sync-version\.mjs/,
+    'the "version" lifecycle script must run sync-version.mjs so a bump cannot forget the manifest');
 });
