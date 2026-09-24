@@ -31,6 +31,8 @@ function __mcp_layerSummary(l) {
 
 function __mcp_itemSummary(it) {
     var s = { id: it.id, name: it.name, typeName: it.typeName };
+    // The root folder is its own parent; report it as null so a flat list can be rebuilt as a tree.
+    try { s.parentFolderId = (it.parentFolder && it.parentFolder !== app.project.rootFolder) ? it.parentFolder.id : null; } catch (e) {}
     if (it instanceof CompItem) {
         s.type = "Composition";
         s.width = it.width; s.height = it.height;

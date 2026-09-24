@@ -72,9 +72,24 @@ __mcp_ops.listOps = function () {
 var __mcp_mutating = {
     set: true, setExpression: true, keyframes: true,
     masks: true, setEase: true,
-    timing: true, shapes: true, compose: true, render: true,
-    shapeOps: true, projectFile: true, template: true, textAnimator: true,
+    timing: true, shapes: true, compose: true,
+    shapeOps: true, template: true, textAnimator: true,
     anchor: true, align: true, distribute: true, stack: true, pin: true, fit: true, stagger: true,
-    layers: true, effects: true, project: true,
-    capture: true, captureSequence: true, captureIsolated: true
+    layers: true, effects: true,
+    capture: true, captureSequence: true, captureIsolated: true,
+    /*
+     * Saving, collecting, rendering and opening a project must NOT run inside
+     * an undo group. AE logs "Undo group mismatch, will attempt to fix" when
+     * renderQueue.render() or a project save happens mid-group, and that
+     * warning is also what made the first render drop a "<project> Logs"
+     * folder next to the .aep. render and projectFile are left out entirely.
+     */
+    project: function (args) {
+        return args.command !== "save" && args.command !== "collect";
+    }
 };
+
+function __mcp_wantsUndo(op, args) {
+    var m = __mcp_mutating[op];
+    return typeof m === "function" ? m(args) === true : m === true;
+}

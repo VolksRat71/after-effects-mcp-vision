@@ -14,8 +14,7 @@
 
 const fs = require('fs');
 const nodePath = require('path');
-const { buildContactSheet } = require('./contact-sheet.js');
-const { readCompletePng } = require('./png-ready.js');
+const { buildContactSheet, flattenOnGrey } = require('./contact-sheet.js');
 const { bridgeInfo } = require('./bridge-info.js');
 
 /*
@@ -332,7 +331,8 @@ const TOOLS = [
       'A 505-frame roto mask is one call instead of 505. Pass hold:true when the outline\'s ' +
       'point count changes between frames (traced or tracked shapes) - linear interpolation ' +
       'between mismatched outlines morphs unpredictably. vertices:null marks a frame where the ' +
-      'mask shows nothing; the tool keys Mask Opacity to 0 there (as holds) automatically. ' +
+      'mask shows nothing; the tool keys Mask Opacity to 0 there (as holds) automatically, and ' +
+      'collapses the path to a point so no stale outline is drawn in the viewer. ' +
       'A request body is capped at 5 MB: about 490,000 vertices with integer coordinates, half ' +
       'that with decimals (a 505-frame, 83,000-vertex roto mask is 0.9 MB). Split a larger job across ' +
       'calls by time range - keys from later calls are added alongside earlier ones, and each call owns ' +
@@ -752,7 +752,7 @@ function createToolRegistry(callHost) {
     });
     // Not readFileSync: AE writes the PNG asynchronously, and a large frame read
     // early came back with a third of its rows missing.
-    const b64 = (await readCompletePng(frame.path)).toString('base64');
+    const b64 = await flattenOnGrey(frame.path);
     try { fs.unlinkSync(frame.path); } catch (e) {}
     const { path, ...meta } = frame;
     return {

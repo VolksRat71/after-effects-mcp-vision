@@ -520,6 +520,7 @@ var __mcp_mutateOps = {
             sorted.sort(function (a, b) { return Number(a.time) - Number(b.time); });
 
             var pTimes = [], pShapes = [], oTimes = [], oVals = [];
+            var frames = [];   // {t, shape|null} in time order, for the collapse pass
             var empty = 0, degenerate = 0, prevVisible = null;
             for (var n = 0; n < sorted.length; n++) {
                 var key = sorted[n];
@@ -535,19 +536,55 @@ var __mcp_mutateOps = {
                     shp.vertices = pts;
                     shp.closed = (key.closed !== false);
                     pTimes.push(t); pShapes.push(shp);
+                    frames.push({ t: t, shape: shp });
                 } else {
                     empty++;
                     if (verts && verts.length) { degenerate++; }
+                    frames.push({ t: t, shape: null });
                 }
                 if (visible !== prevVisible) { oTimes.push(t); oVals.push(visible ? 100 : 0); prevVisible = visible; }
             }
 
+            /*
+             * Empty frames also get a COLLAPSED path: every vertex on the
+             * centroid of the neighbouring real shape. Opacity 0 keeps the render
+             * clean, but AE draws every mask path on a selected layer whatever
+             * its opacity, so a held last shape left stale outlines all over the
+             * viewer - and before a mask's first real key AE shows that key, so a
+             * shape appeared long before it existed. Keys go on the first and the
+             * last frame of each empty run, so a non-hold path cannot grow across
+             * the gap either. Opacity keys stay as belt and braces.
+             */
+            var collapsed = function (src) {
+                var sv = src.vertices, cx = 0, cy = 0;
+                for (var ci = 0; ci < sv.length; ci++) { cx += sv[ci][0]; cy += sv[ci][1]; }
+                cx /= sv.length; cy /= sv.length;
+                var dot = [];
+                for (var cj = 0; cj < sv.length; cj++) { dot.push([cx, cy]); }
+                var c = new Shape(); c.vertices = dot; c.closed = src.closed;
+                return c;
+            };
+            var cTimes = [], cShapes = [];
+            var r = 0;
+            while (r < frames.length) {
+                if (frames[r].shape) { r++; continue; }
+                var runStart = r;
+                while (r < frames.length && !frames[r].shape) { r++; }
+                var runEnd = r - 1;
+                var before = runStart > 0 ? frames[runStart - 1].shape : null;
+                var after = r < frames.length ? frames[r].shape : null;
+                if (!before && !after) { continue; }   // no real shape anywhere to collapse
+                cTimes.push(frames[runStart].t); cShapes.push(collapsed(before || after));
+                if (runEnd !== runStart) { cTimes.push(frames[runEnd].t); cShapes.push(collapsed(after || before)); }
+            }
+
             var pathProp = km.property("ADBE Mask Shape");
-            if (pTimes.length) { pathProp.setValuesAtTimes(pTimes, pShapes); }
+            var allTimes = pTimes.concat(cTimes), allShapes = pShapes.concat(cShapes);
+            if (allTimes.length) { pathProp.setValuesAtTimes(allTimes, allShapes); }
             var hold = (args.hold === true);
             if (hold) {
-                for (var h = 0; h < pTimes.length; h++) {
-                    pathProp.setInterpolationTypeAtKey(pathProp.nearestKeyIndex(pTimes[h]),
+                for (var h = 0; h < allTimes.length; h++) {
+                    pathProp.setInterpolationTypeAtKey(pathProp.nearestKeyIndex(allTimes[h]),
                         KeyframeInterpolationType.HOLD, KeyframeInterpolationType.HOLD);
                 }
             }
@@ -577,7 +614,9 @@ var __mcp_mutateOps = {
                 for (var ek = 1; ek <= opProp.numKeys; ek++) {
                     if (Math.abs(opProp.keyTime(ek) - restoreAt) < 1e-6) { governed = true; break; }
                 }
-                if (!governed && oVals[oVals.length - 1] !== afterVal) {
+                // No restore key past the end of the comp: nothing is there to hand back to.
+                var pastEnd = restoreAt >= layer.containingComp.duration - 1e-6;
+                if (!governed && !pastEnd && oVals[oVals.length - 1] !== afterVal) {
                     opProp.setValueAtTime(restoreAt, afterVal);
                     oTimes.push(restoreAt);
                     restoredAfter = afterVal;
@@ -590,7 +629,7 @@ var __mcp_mutateOps = {
             }
 
             return { layerId: layer.id, maskIndex: km.propertyIndex, name: km.name,
-                     pathKeys: pTimes.length, opacityKeys: opacityKeys,
+                     pathKeys: pTimes.length, collapsedKeys: cTimes.length, opacityKeys: opacityKeys,
                      emptyFrames: empty, degenerateShapes: degenerate, hold: hold,
                      opacityRestoredAfterRange: restoredAfter,
                      numKeys: pathProp.numKeys, elapsedMs: new Date().getTime() - started };

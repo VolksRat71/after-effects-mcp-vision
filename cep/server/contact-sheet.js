@@ -9,6 +9,8 @@
 
 const { readCompletePng } = require('./png-ready.js');
 
+const GREY = '#4a4a4a';
+
 async function loadImage(filePath) {
   // Wait for AE to finish the file - a sequence frame read mid-write decodes
   // with its bottom rows missing.
@@ -43,7 +45,7 @@ async function buildContactSheet(frames, options = {}) {
 
   // Mid grey, not black or white: transparent regions in a capture would be
   // ambiguous against either, and "nothing drawn here" is a real finding.
-  ctx.fillStyle = '#4a4a4a';
+  ctx.fillStyle = GREY;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   images.forEach((img, i) => {
@@ -73,4 +75,29 @@ async function buildContactSheet(frames, options = {}) {
   };
 }
 
-module.exports = { buildContactSheet };
+/**
+ * One capture flattened onto the same mid grey as the contact sheet.
+ * saveFrameToPng keeps the comp's alpha, and most clients show a transparent
+ * PNG on white - so a single frame read "white fill" where the sheet read
+ * "nothing drawn". Outside the CEF page (unit tests under plain Node) there is
+ * no canvas, and the raw PNG is returned unchanged.
+ *
+ * @param {string} filePath
+ * @returns {Promise<string>} base64 PNG
+ */
+async function flattenOnGrey(filePath) {
+  if (typeof document === 'undefined') {
+    return (await readCompletePng(filePath)).toString('base64');
+  }
+  const img = await loadImage(filePath);
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = GREY;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0);
+  return canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
+}
+
+module.exports = { buildContactSheet, flattenOnGrey };
