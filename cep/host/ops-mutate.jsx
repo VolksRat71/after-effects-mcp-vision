@@ -585,12 +585,19 @@ var __mcp_mutateOps = {
              */
             var pathProp = km.property("ADBE Mask Shape");
             var rangeStart = Number(sorted[0].time), rangeEnd = Number(sorted[sorted.length - 1].time);
+            var allTimes = pTimes.concat(cTimes), allShapes = pShapes.concat(cShapes);
+            // removeKey is the slow part (~65 ms a key on a 505-key roto mask), so a
+            // key this call rewrites at the same time is left for setValuesAtTimes
+            // to overwrite, and only keys with no replacement are removed.
+            var rewritten = {};
+            for (var rw = 0; rw < allTimes.length; rw++) { rewritten[Math.round(allTimes[rw] * 1e4)] = true; }
             var clearedPathKeys = 0;
             for (var pk = pathProp.numKeys; pk >= 1; pk--) {
                 var pkt = pathProp.keyTime(pk);
-                if (pkt >= rangeStart - 1e-6 && pkt <= rangeEnd + 1e-6) { pathProp.removeKey(pk); clearedPathKeys++; }
+                if (pkt >= rangeStart - 1e-6 && pkt <= rangeEnd + 1e-6 && !rewritten[Math.round(pkt * 1e4)]) {
+                    pathProp.removeKey(pk); clearedPathKeys++;
+                }
             }
-            var allTimes = pTimes.concat(cTimes), allShapes = pShapes.concat(cShapes);
             if (allTimes.length) { pathProp.setValuesAtTimes(allTimes, allShapes); }
             var hold = (args.hold === true);
             if (hold) {

@@ -355,6 +355,37 @@
             return { frame2: opacityAt(id, 2 / 24), frame5: opacityAt(id, 5 / 24), frame12: opacityAt(id, 12 / 24) };
         });
 
+        /*
+         * Collapsed empty frames, shaped like the roto job's "Gap 3": real shapes on
+         * three frames only, with a leading, an interior and a trailing empty run.
+         * Each run gets exactly one collapse key per edge and nothing in between,
+         * and a re-run with the same data rewrites in place without removing keys.
+         */
+        record("setPathKeys collapses every empty run, trailing included, one key per run edge", function () {
+            var id = call("layers", { compId: scratchCompId, command: "createSolid", color: [1,1,1], name: "gap3", width: 400, height: 400 }).id;
+            call("masks", { layerId: id, command: "add" });
+            var sq = [[10,10],[90,10],[90,90],[10,90]];
+            var real = { 5: true, 6: true, 12: true };
+            var keys = [];
+            for (var f = 0; f <= 30; f++) { keys.push({ time: f / 24, vertices: real[f] ? sq : null }); }
+            var r = call("masks", { layerId: id, command: "setPathKeys", keys: keys, hold: true });
+            var shape = __mcp_layerById(id).property("ADBE Mask Parade").property(1).property("ADBE Mask Shape");
+            var got = [];
+            for (var k = 1; k <= shape.numKeys; k++) { got.push(Math.round(shape.keyTime(k) * 24)); }
+            // runs 0-4, 7-11, 13-30: edges 0,4 / 7,11 / 13,30, plus the real 5,6,12
+            var want = [0, 4, 5, 6, 7, 11, 12, 13, 30];
+            if (got.join(",") !== want.join(",")) { throw new Error("key frames " + got.join(",") + ", wanted " + want.join(",")); }
+            if (r.pathKeys !== 3 || r.collapsedKeys !== 6) { throw new Error("pathKeys/collapsedKeys " + r.pathKeys + "/" + r.collapsedKeys); }
+            var mid = shape.valueAtTime(20 / 24, false).vertices;
+            if (mid[0][0] !== 50 || mid[2][0] !== 50 || mid[0][1] !== 50) { throw new Error("trailing run is not collapsed at frame 20: " + mid.toString()); }
+            var again = call("masks", { layerId: id, command: "setPathKeys", keys: keys, hold: true });
+            if (again.clearedPathKeys !== 0 || shape.numKeys !== 9) { throw new Error("re-run removed " + again.clearedPathKeys + " keys, numKeys " + shape.numKeys); }
+            keys[12].vertices = null;   // drop the last real shape: its key and the 13 edge have no replacement
+            var third = call("masks", { layerId: id, command: "setPathKeys", keys: keys, hold: true });
+            if (shape.numKeys !== third.pathKeys + third.collapsedKeys) { throw new Error("stale keys survived: numKeys " + shape.numKeys); }
+            return { frames: got.join(","), rerunCleared: again.clearedPathKeys, afterDrop: shape.numKeys };
+        });
+
         record("project hygiene: rename an item, create folders, move items into them", function () {
             var comp = call("project", { command: "createComp", name: "hygiene", width: 64, height: 64, duration: 1, frameRate: 24 });
             var r = call("project", { command: "renameItem", itemId: comp.id, name: "hygiene renamed" });
