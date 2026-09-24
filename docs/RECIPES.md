@@ -189,13 +189,28 @@ path in one call and one undo step - a 693-frame, six-mask roto is 12 calls
   every frame, and linear interpolation between mismatched outlines morphs.
 - **`vertices: null`** (or fewer than 3 points) marks a frame with nothing in
   it. The tool keys Mask Opacity to 0 there and back to 100 afterwards, always as
-  holds, transitions only.
+  holds, transitions only. It also collapses the path to a point on the first and
+  last frame of each empty run: AE draws every mask outline on a selected layer
+  whatever its opacity, so a held shape would clutter the viewer while the render
+  stayed clean.
 - **Holes** - the gap between an arm and a torso - are their own mask with
   `mode: "subtract"`, set on `add` or later with `setMode`. Inverting a mask is
   not the same thing.
-- A request is capped at 5 MB: about 490,000 integer vertices, half that with
-  decimals. A 505-frame, 83,000-vertex mask is 0.9 MB. Split a bigger job by
-  time range; later calls add keys alongside earlier ones.
+- **Read keys from disk** with `keysPath` (absolute) instead of `keys`, so
+  tracker output costs no tokens. `keysPointer` is a JSON pointer into the file
+  (`"/add/0"`); per-frame vertex arrays take their times from `fps` (argument,
+  node or file root). `{ "command": "setPathKeys", "layerId": 29,
+  "maskName": "add_0", "keysPath": "/abs/shapes.json", "keysPointer": "/add/0",
+  "hold": true }`
+- **A call replaces its own time range.** Keys inside `[first, last]` that the
+  call does not rewrite are removed, so a re-run gives exactly what was sent;
+  `clearedPathKeys` and `opacityNumKeys` let you check. Split a big job by time
+  range: each call owns the opacity keys in its range and hands back to the
+  frame after it.
+- **Check your work** with `ae_query propertyValues` and a `time`: a mask path
+  reads as `{vertexCount, closed, bbox, collapsed}`.
+- A request body is capped at 5 MB (about 490,000 integer vertices); `keysPath`
+  has no such limit up to 50 MB of JSON.
 
 ## 8. Reloading after a host edit
 

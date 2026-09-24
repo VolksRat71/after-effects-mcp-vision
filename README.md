@@ -69,14 +69,14 @@ works on localized installs.
 
 | Tool | What it does |
 |---|---|
-| `ae_query` | `sessionInfo`, `tree`, `find`, `propertyKeys`, `propertyValues`, `selection` |
+| `ae_query` | `sessionInfo`, `tree`, `find`, `propertyKeys`, `propertyValues`, `selection`, `bounds`, and `describe` for a tool's live schema |
 | `ae_set` | Batched property and expression writes, with per-item errors |
 | `ae_animate` | Add, remove and read keyframes, with easing |
 | `ae_layers` | Create, delete, duplicate, rename, reorder, reparent, lock, solo |
 | `ae_effects` | List available, apply, remove, inspect parameters |
-| `ae_project` | Create comps, import footage, add to comp, open, save |
+| `ae_project` | Create comps, import footage, folders, rename, relink, open, save, and collect files for handoff |
 | `ae_capture` | **Vision:** one frame, a labelled contact sheet over time, or one layer isolated |
-| `ae_masks` | Rect and freeform masks, feather, modes (add, subtract, …), and a whole animated roto path in one call |
+| `ae_masks` | Rect and freeform masks, feather, modes (add, subtract, …), rename, and a whole animated roto path in one call, read from disk if you like |
 | `ae_timing` | Layer in/out/start, comp settings, markers |
 | `ae_shapes` | Rect, ellipse, polygon, star and path layers; trim paths, repeaters, dashes |
 | `ae_compose` | Precompose, track mattes, blend modes, parenting, 3D, cameras |
