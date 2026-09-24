@@ -171,6 +171,32 @@ layers.
 
 ---
 
+## 7a. Roto and animated masks
+
+Use `ae_masks setPathKeys`, never `setPath` in a loop. It writes a whole animated
+path in one call and one undo step - a 693-frame, six-mask roto is 12 calls
+(one `add` and one `setPathKeys` per mask), not ~4,000.
+
+```json
+{ "command": "setPathKeys", "layerId": 29, "maskName": "add_0", "hold": true,
+  "keys": [ { "time": 0.0,     "vertices": [[654,1073], [660,1068], "..."] },
+            { "time": 0.04167, "vertices": null } ] }
+```
+
+- **`time` is comp seconds** (`frame / fps`); **vertices are layer pixels**, the
+  same space as `setPath`.
+- **`hold: true`** for traced or tracked outlines. Their point count changes
+  every frame, and linear interpolation between mismatched outlines morphs.
+- **`vertices: null`** (or fewer than 3 points) marks a frame with nothing in
+  it. The tool keys Mask Opacity to 0 there and back to 100 afterwards, always as
+  holds, transitions only.
+- **Holes** - the gap between an arm and a torso - are their own mask with
+  `mode: "subtract"`, set on `add` or later with `setMode`. Inverting a mask is
+  not the same thing.
+- A request is capped at 5 MB: about 490,000 integer vertices, half that with
+  decimals. A 505-frame, 83,000-vertex mask is 0.9 MB. Split a bigger job by
+  time range; later calls add keys alongside earlier ones.
+
 ## 8. Reloading after a host edit
 
 CEP evaluates the ExtendScript host **once**, when the extension starts, so
@@ -178,6 +204,13 @@ editing a `host/*.jsx` file changes nothing in a running session. This caused a
 long misdiagnosis: on-disk source and observed behaviour disagreed, and file
 mtimes alone did not prove which code was compiled.
 
-`ae_diagnostics {command: "reloadHost"}` re-evaluates the host from disk.
-Changes to the **Node** side (`server/*.js`) still need an After Effects
-restart.
+`ae_diagnostics {command: "reloadHost"}` re-evaluates the host from disk and
+proves it: it reports `reloaded: true` only if the host's load stamp changed,
+and otherwise says the host was not re-evaluated. (Before 2.0.4 it always said
+`true` and reloaded nothing - `$.evalFile` inside a function defines everything
+as locals of that function.) Changes to the **Node** side (`server/*.js`) still
+need an After Effects restart.
+
+A host file that fails to parse does not raise an error anywhere visible in
+After Effects - the host simply never loads and every call times out. Run
+`npm run lint`, which parses every `.jsx`, before reloading.

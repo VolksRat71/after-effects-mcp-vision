@@ -76,7 +76,7 @@ works on localized installs.
 | `ae_effects` | List available, apply, remove, inspect parameters |
 | `ae_project` | Create comps, import footage, add to comp, open, save |
 | `ae_capture` | **Vision:** one frame, a labelled contact sheet over time, or one layer isolated |
-| `ae_masks` | Rectangular and freeform masks, feather |
+| `ae_masks` | Rect and freeform masks, feather, modes (add, subtract, …), and a whole animated roto path in one call |
 | `ae_timing` | Layer in/out/start, comp settings, markers |
 | `ae_shapes` | Rect, ellipse, polygon, star and path layers; trim paths, repeaters, dashes |
 | `ae_compose` | Precompose, track mattes, blend modes, parenting, 3D, cameras |
