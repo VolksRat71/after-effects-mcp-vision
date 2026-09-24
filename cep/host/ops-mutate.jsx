@@ -398,12 +398,40 @@ var __mcp_mutateOps = {
         var parade = layer.property("ADBE Mask Parade");
         if (!parade) { throw new Error("Layer does not support masks"); }
 
+        // Mask blend modes by the name an agent would use. Inverting a mask is
+        // NOT the same as subtracting it: holes between limbs in a roto need
+        // SUBTRACT, which nothing could previously write.
+        var MODES = { none: MaskMode.NONE, add: MaskMode.ADD, subtract: MaskMode.SUBTRACT,
+                      intersect: MaskMode.INTERSECT, lighten: MaskMode.LIGHTEN,
+                      darken: MaskMode.DARKEN, difference: MaskMode.DIFFERENCE };
+        function modeValue(name) {
+            var k = String(name).toLowerCase();
+            if (!MODES.hasOwnProperty(k)) {
+                var names = []; for (var mn in MODES) { if (MODES.hasOwnProperty(mn)) { names.push(mn); } }
+                throw new Error("mode must be one of: " + names.join(", "));
+            }
+            return MODES[k];
+        }
+        function modeName(v) {
+            for (var mk2 in MODES) { if (MODES.hasOwnProperty(mk2) && MODES[mk2] === v) { return mk2; } }
+            return String(v);
+        }
+        // maskIndex, else maskName, else the most recently added mask.
+        function pickMask() {
+            var picked = null;
+            if (args.maskIndex) { picked = parade.property(Number(args.maskIndex)); }
+            else if (args.maskName) { picked = parade.property(String(args.maskName)); }
+            else if (parade.numProperties > 0) { picked = parade.property(parade.numProperties); }
+            if (!picked) { throw new Error("No such mask - add one first, or check maskIndex/maskName"); }
+            return picked;
+        }
+
         if (cmd === "list") {
             var out = [];
             for (var i = 1; i <= parade.numProperties; i++) {
                 var mk = parade.property(i);
                 out.push({ index: i, name: mk.name, inverted: mk.inverted,
-                           mode: String(mk.maskMode), path: ["ADBE Mask Parade", mk.name] });
+                           mode: modeName(mk.maskMode), path: ["ADBE Mask Parade", mk.name] });
             }
             return { layerId: layer.id, count: out.length, masks: out };
         }
@@ -412,13 +440,14 @@ var __mcp_mutateOps = {
             var m = parade.addProperty("ADBE Mask Atom");
             if (args.name) { m.name = String(args.name); }
             if (args.inverted) { m.inverted = true; }
+            if (args.mode) { m.maskMode = modeValue(args.mode); }
             if (args.expansion !== undefined) {
                 m.property("ADBE Mask Offset").setValue(Number(args.expansion));
             }
             if (args.feather !== undefined) {
                 m.property("ADBE Mask Feather").setValue([Number(args.feather), Number(args.feather)]);
             }
-            return { layerId: layer.id, maskIndex: m.propertyIndex, name: m.name };
+            return { layerId: layer.id, maskIndex: m.propertyIndex, name: m.name, mode: modeName(m.maskMode) };
         }
 
         if (cmd === "setRect") {
@@ -460,6 +489,87 @@ var __mcp_mutateOps = {
             if (args.time !== undefined && args.time !== null) { sp.setValueAtTime(Number(args.time), ps); } else { sp.setValue(ps); }
             return { layerId: layer.id, maskIndex: tp.propertyIndex, vertices: vv.length, numKeys: sp.numKeys };
         }
+        if (cmd === "setMode") {
+            var tm = pickMask();
+            tm.maskMode = modeValue(args.mode);
+            return { layerId: layer.id, maskIndex: tm.propertyIndex, name: tm.name, mode: modeName(tm.maskMode) };
+        }
+
+        /*
+         * A whole animated path in one call. A roto is hundreds of shapes per
+         * mask; setPath's one-key-per-call meant ~4,000 round trips and as many
+         * undo steps for a 693-frame, 6-mask job. This builds every Shape and
+         * writes them with a single setValuesAtTimes.
+         *
+         * keys:  [{ time, vertices: [[x,y],...] | null, closed? }] - comp seconds,
+         *        LAYER-space pixels. Order does not matter.
+         * hold:  make every key in this call a hold keyframe. Outlines whose
+         *        point count changes frame to frame morph unpredictably under
+         *        linear interpolation; holds show exactly the traced shape.
+         * null vertices (or fewer than 3 points) mean "nothing this frame": the
+         * path keeps its last shape and Mask Opacity is keyed to 0, then back to
+         * 100 when a shape returns. Opacity keys are always holds, and only the
+         * transitions are written.
+         */
+        if (cmd === "setPathKeys") {
+            var km = pickMask();
+            var keys = args.keys;
+            if (!keys || !keys.length) { throw new Error("setPathKeys needs a non-empty keys array: [{time, vertices}]"); }
+            var started = new Date().getTime();
+            var sorted = keys.slice(0);
+            sorted.sort(function (a, b) { return Number(a.time) - Number(b.time); });
+
+            var pTimes = [], pShapes = [], oTimes = [], oVals = [];
+            var empty = 0, degenerate = 0, prevVisible = null;
+            for (var n = 0; n < sorted.length; n++) {
+                var key = sorted[n];
+                var t = Number(key.time);
+                if (key.time === undefined || key.time === null || isNaN(t)) {
+                    throw new Error("keys[" + n + "] (after sorting by time) has no numeric time");
+                }
+                var verts = key.vertices;
+                var visible = !!(verts && verts.length >= 3);
+                if (visible) {
+                    var shp = new Shape(); var pts = [];
+                    for (var vi = 0; vi < verts.length; vi++) { pts.push([Number(verts[vi][0]), Number(verts[vi][1])]); }
+                    shp.vertices = pts;
+                    shp.closed = (key.closed !== false);
+                    pTimes.push(t); pShapes.push(shp);
+                } else {
+                    empty++;
+                    if (verts && verts.length) { degenerate++; }
+                }
+                if (visible !== prevVisible) { oTimes.push(t); oVals.push(visible ? 100 : 0); prevVisible = visible; }
+            }
+
+            var pathProp = km.property("ADBE Mask Shape");
+            if (pTimes.length) { pathProp.setValuesAtTimes(pTimes, pShapes); }
+            var hold = (args.hold === true);
+            if (hold) {
+                for (var h = 0; h < pTimes.length; h++) {
+                    pathProp.setInterpolationTypeAtKey(pathProp.nearestKeyIndex(pTimes[h]),
+                        KeyframeInterpolationType.HOLD, KeyframeInterpolationType.HOLD);
+                }
+            }
+
+            // Only touch opacity when something is actually empty.
+            var opacityKeys = 0;
+            if (empty > 0) {
+                var opProp = km.property("ADBE Mask Opacity");
+                opProp.setValuesAtTimes(oTimes, oVals);
+                for (var o = 0; o < oTimes.length; o++) {
+                    opProp.setInterpolationTypeAtKey(opProp.nearestKeyIndex(oTimes[o]),
+                        KeyframeInterpolationType.HOLD, KeyframeInterpolationType.HOLD);
+                }
+                opacityKeys = oTimes.length;
+            }
+
+            return { layerId: layer.id, maskIndex: km.propertyIndex, name: km.name,
+                     pathKeys: pTimes.length, opacityKeys: opacityKeys,
+                     emptyFrames: empty, degenerateShapes: degenerate, hold: hold,
+                     numKeys: pathProp.numKeys, elapsedMs: new Date().getTime() - started };
+        }
+
         if (cmd === "setFeather") {
             var tf = args.maskIndex ? parade.property(Number(args.maskIndex)) : parade.property(parade.numProperties);
             if (!tf) { throw new Error("No mask to set - add one first"); }

@@ -263,13 +263,25 @@ const TOOLS = [
       'Call add once, then setRect repeatedly at different times.\n\n' +
       'setPath takes arbitrary vertices for non-rectangular masks, and setFeather softens the ' +
       'edge (also keyframeable). To clip a layer to the SHAPE of another layer rather than to a ' +
-      'path, use ae_compose setTrackMatte instead.',
+      'path, use ae_compose setTrackMatte instead.\n\n' +
+      'ROTO / ANIMATED PATHS: use setPathKeys, not setPath in a loop. It writes a whole ' +
+      'animated path in ONE call: keys:[{time, vertices}], all keys, one undo step. ' +
+      'A 505-frame roto mask is one call instead of 505. Pass hold:true when the outline\'s ' +
+      'point count changes between frames (traced or tracked shapes) - linear interpolation ' +
+      'between mismatched outlines morphs unpredictably. vertices:null marks a frame where the ' +
+      'mask shows nothing; the tool keys Mask Opacity to 0 there (as holds) automatically. ' +
+      'A request body is capped at 5 MB: about 490,000 vertices with integer coordinates, half ' +
+      'that with decimals (a 505-frame, 83,000-vertex roto mask is 0.9 MB). Split a larger job across ' +
+      'calls by time range - keys from later calls are added alongside earlier ones.\n\n' +
+      'MODES: pass mode on add, or call setMode. Holes (the gap between an arm and a torso) ' +
+      'need mode:"subtract" on their own mask - inverting a mask is not the same thing.',
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: ['add', 'setRect', 'setPath', 'setFeather', 'list', 'remove'] },
+        command: { type: 'string', enum: ['add', 'setRect', 'setPath', 'setPathKeys', 'setMode', 'setFeather', 'list', 'remove'] },
         layerId: { type: 'number' },
         maskIndex: { type: 'number', description: 'Defaults to the most recently added mask.' },
+        maskName: { type: 'string', description: 'setPathKeys/setMode: address a mask by name instead of index.' },
         name: { type: 'string' },
         left: { type: 'number', description: 'Rect left in layer space. Default 0.' },
         top: { type: 'number', description: 'Rect top in layer space. Default 0.' },
@@ -281,6 +293,23 @@ const TOOLS = [
         expansion: { type: 'number' },
         vertices: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'setPath: [[x,y], ...] in layer space, 3 or more.' },
         closed: { type: 'boolean', description: 'setPath. Default true.' },
+        keys: {
+          type: 'array',
+          description: 'setPathKeys: [{time, vertices, closed?}]. time in comp seconds; vertices [[x,y],...] in ' +
+            'layer space, 3 or more, or null for "no shape this frame" (Mask Opacity is keyed to 0 there).',
+          items: {
+            type: 'object',
+            properties: {
+              time: { type: 'number' },
+              vertices: { type: ['array', 'null'], items: { type: 'array', items: { type: 'number' } } },
+              closed: { type: 'boolean' },
+            },
+            required: ['time'],
+          },
+        },
+        hold: { type: 'boolean', description: 'setPathKeys: make every key in this call a hold keyframe. Use for traced/tracked outlines.' },
+        mode: { type: 'string', enum: ['add', 'subtract', 'intersect', 'lighten', 'darken', 'difference', 'none'],
+          description: 'add/setMode: mask blend mode. Default for a new mask is add.' },
       },
       required: ['command', 'layerId'],
     },
@@ -596,7 +625,9 @@ function createToolRegistry(callHost) {
    * blocks until the job finishes, so it gets its own long ceiling rather than
    * timing out on every real output.
    */
-  const LONG_OPS = { render: 30 * 60 * 1000, captureSequence: 5 * 60 * 1000 };
+  // masks: a batched roto write builds hundreds of Shapes and keys them in one
+  // host call, which can outlast the default ceiling on a large mask.
+  const LONG_OPS = { render: 30 * 60 * 1000, captureSequence: 5 * 60 * 1000, masks: 3 * 60 * 1000 };
 
   async function host(op, args) {
     const res = await callHost(op, args, LONG_OPS[op]);

@@ -261,3 +261,22 @@ test('ae_layout states that rigged mode does not survive Lottie or Rive', () => 
   assert.match(l.description, /Rive/);
   assert.match(l.description, /IDEMPOTENT/);
 });
+
+test('ae_masks exposes batched roto keys, holds and mask modes', () => {
+  const masks = TOOLS.find((t) => t.name === 'ae_masks');
+  const p = masks.inputSchema.properties;
+  for (const cmd of ['setPathKeys', 'setMode']) assert.ok(p.command.enum.includes(cmd), `missing command ${cmd}`);
+  assert.ok(p.keys && p.hold && p.mode && p.maskName, 'keys, hold, mode and maskName must be in the schema');
+  assert.ok(p.mode.enum.includes('subtract'), 'subtract is the mode rotos need for holes');
+  assert.ok(p.keys.items.properties.vertices.type.includes('null'), 'null vertices must be allowed - they mark empty frames');
+  // The description must steer agents off a setPath loop, the thing that cost 4,000 round trips.
+  assert.match(masks.description, /setPathKeys/);
+  assert.match(masks.description, /hold/);
+});
+
+test('a batched masks call gets a longer host timeout than the default', async () => {
+  let seenTimeout = null;
+  const reg = createToolRegistry(async (op, args, timeoutMs) => { seenTimeout = timeoutMs; return { ok: true, result: {} }; });
+  await reg.callTool('ae_masks', { command: 'setPathKeys', layerId: 1, keys: [{ time: 0, vertices: null }] });
+  assert.ok(seenTimeout >= 60 * 1000, `masks ran with a ${seenTimeout}ms ceiling`);
+});

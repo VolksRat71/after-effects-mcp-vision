@@ -220,6 +220,106 @@
             return r.numKeys;
         });
 
+        /*
+         * Roto support. A traced roto is hundreds of shapes per mask whose point
+         * count changes every frame; setPath's one-key-per-call made that ~4,000
+         * round trips. These check the resulting KEYFRAMES inside AE, not just
+         * what the op reports.
+         */
+        function circle(n, r, cx, cy) {
+            var pts = [];
+            for (var i = 0; i < n; i++) {
+                var a = (i / n) * 2 * Math.PI;
+                pts.push([Math.round(cx + r * Math.cos(a)), Math.round(cy + r * Math.sin(a))]);
+            }
+            return pts;
+        }
+
+        record("setPathKeys writes a whole animated path in one call, as holds", function () {
+            var solidId = call("layers", { compId: scratchCompId, command: "createSolid",
+                                           color: [1,1,1], name: "roto", width: 400, height: 400 }).id;
+            call("masks", { layerId: solidId, command: "add", name: "outline" });
+            var keys = [];
+            // Point counts change every frame, like a traced outline. Deliberately
+            // out of order: the op must sort.
+            for (var f = 29; f >= 0; f--) { keys.push({ time: f / 24, vertices: circle(3 + f, 150, 200, 200) }); }
+            var r = call("masks", { layerId: solidId, command: "setPathKeys", maskName: "outline", keys: keys, hold: true });
+            if (r.pathKeys !== 30 || r.numKeys !== 30) { throw new Error("expected 30 keys, got " + r.pathKeys + "/" + r.numKeys); }
+
+            var prop = __mcp_layerById(solidId).property("ADBE Mask Parade").property("outline").property("ADBE Mask Shape");
+            for (var k = 1; k <= prop.numKeys; k++) {
+                if (prop.keyOutInterpolationType(k) !== KeyframeInterpolationType.HOLD) { throw new Error("key " + k + " is not a hold"); }
+            }
+            var first = prop.keyValue(1).vertices.length, last = prop.keyValue(30).vertices.length;
+            if (first !== 3 || last !== 32) { throw new Error("key values out of order: " + first + " .. " + last + " points"); }
+            return { keys: prop.numKeys, points: first + ".." + last, ms: r.elapsedMs };
+        });
+
+        record("setPathKeys: empty frames key Mask Opacity to 0, as holds, transitions only", function () {
+            var solidId = call("layers", { compId: scratchCompId, command: "createSolid",
+                                           color: [1,1,1], name: "rotogaps", width: 400, height: 400 }).id;
+            call("masks", { layerId: solidId, command: "add" });
+            var sq = [[10,10],[90,10],[90,90],[10,90]];
+            var r = call("masks", { layerId: solidId, command: "setPathKeys", hold: true, keys: [
+                { time: 0 / 24, vertices: sq },
+                { time: 1 / 24, vertices: sq },
+                { time: 2 / 24, vertices: null },            // empty
+                { time: 3 / 24, vertices: [[1,1],[2,2]] },   // degenerate: too few points, treated as empty
+                { time: 4 / 24, vertices: sq }
+            ] });
+            if (r.pathKeys !== 3) { throw new Error("expected 3 path keys, got " + r.pathKeys); }
+            if (r.emptyFrames !== 2 || r.degenerateShapes !== 1) { throw new Error("empty/degenerate counts wrong: " + r.emptyFrames + "/" + r.degenerateShapes); }
+            if (r.opacityKeys !== 3) { throw new Error("expected 3 opacity transitions (100, 0, 100), got " + r.opacityKeys); }
+
+            var op = __mcp_layerById(solidId).property("ADBE Mask Parade").property(1).property("ADBE Mask Opacity");
+            var want = [100, 0, 100];
+            for (var k = 1; k <= op.numKeys; k++) {
+                if (op.keyValue(k) !== want[k - 1]) { throw new Error("opacity key " + k + " = " + op.keyValue(k) + ", wanted " + want[k - 1]); }
+                if (op.keyOutInterpolationType(k) !== KeyframeInterpolationType.HOLD) { throw new Error("opacity key " + k + " is not a hold"); }
+            }
+            // Mid-gap the mask must be invisible, and visible again after.
+            if (op.valueAtTime(2.5 / 24, false) !== 0 || op.valueAtTime(4 / 24, false) !== 100) { throw new Error("opacity does not switch at the gap"); }
+            return { pathKeys: r.pathKeys, opacity: want };
+        });
+
+        record("setPathKeys leaves Mask Opacity alone when no frame is empty", function () {
+            var solidId = call("layers", { compId: scratchCompId, command: "createSolid",
+                                           color: [1,1,1], name: "rotofull", width: 200, height: 200 }).id;
+            call("masks", { layerId: solidId, command: "add" });
+            var r = call("masks", { layerId: solidId, command: "setPathKeys", keys: [
+                { time: 0, vertices: circle(8, 50, 100, 100) }, { time: 1, vertices: circle(8, 80, 100, 100) } ] });
+            var op = __mcp_layerById(solidId).property("ADBE Mask Parade").property(1).property("ADBE Mask Opacity");
+            if (r.opacityKeys !== 0 || op.numKeys !== 0) { throw new Error("opacity was keyed although nothing was empty"); }
+            var shape = __mcp_layerById(solidId).property("ADBE Mask Parade").property(1).property("ADBE Mask Shape");
+            if (shape.keyOutInterpolationType(1) === KeyframeInterpolationType.HOLD) { throw new Error("hold was applied without hold:true"); }
+            return { pathKeys: r.pathKeys, opacityKeys: 0 };
+        });
+
+        record("setPathKeys rejects a key with no time", function () {
+            var solidId = call("layers", { compId: scratchCompId, command: "createSolid",
+                                           color: [1,1,1], name: "rotobad", width: 100, height: 100 }).id;
+            call("masks", { layerId: solidId, command: "add" });
+            return expectFail("masks", { layerId: solidId, command: "setPathKeys", keys: [{ vertices: [[0,0],[10,0],[10,10]] }] }, "op_failed");
+        });
+
+        record("mask modes: set on add, changed by setMode, reported by name", function () {
+            var solidId = call("layers", { compId: scratchCompId, command: "createSolid",
+                                           color: [1,1,1], name: "modes", width: 200, height: 200 }).id;
+            call("masks", { layerId: solidId, command: "add", name: "body" });
+            var hole = call("masks", { layerId: solidId, command: "add", name: "gap", mode: "subtract" });
+            if (hole.mode !== "subtract") { throw new Error("add ignored mode: " + hole.mode); }
+            var m = __mcp_layerById(solidId).property("ADBE Mask Parade").property("gap");
+            if (m.maskMode !== MaskMode.SUBTRACT) { throw new Error("AE mask mode is not SUBTRACT"); }
+            var changed = call("masks", { layerId: solidId, command: "setMode", maskName: "gap", mode: "intersect" });
+            if (changed.mode !== "intersect" || m.maskMode !== MaskMode.INTERSECT) { throw new Error("setMode did not take"); }
+            var list = call("masks", { layerId: solidId, command: "list" });
+            if (list.masks[0].mode !== "add" || list.masks[1].mode !== "intersect") {
+                throw new Error("list did not report modes by name: " + list.masks[0].mode + ", " + list.masks[1].mode);
+            }
+            expectFail("masks", { layerId: solidId, command: "setMode", maskName: "gap", mode: "multiply" }, "op_failed");
+            return { modes: [list.masks[0].mode, list.masks[1].mode] };
+        });
+
         record("setEase applies temporal easing sized to the property", function () {
             call("keyframes", { layerId: textLayerId,
                 path: ["ADBE Transform Group", "ADBE Position"],
