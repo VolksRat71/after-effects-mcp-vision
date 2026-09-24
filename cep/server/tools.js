@@ -729,10 +729,22 @@ function createToolRegistry(callHost) {
         : host('project', a).then(textContent);
     },
     ae_capture: capture,
-    ae_diagnostics: (a) =>
-      a.command === 'reloadHost'
-        ? host('reloadHost', { hostPath: HOST_JSX }).then(textContent)
-        : host('problems', a).then(textContent),
+    ae_diagnostics: async (a) => {
+      if (a.command !== 'reloadHost') return textContent(await host('problems', a));
+      // Report a reload only if the host's load stamp actually changed. The old
+      // implementation answered "reloaded: true" while reloading nothing.
+      const before = await host('hostInfo', {});
+      const after = await host('reloadHost', { hostPath: HOST_JSX });
+      const reloaded = !after.reloadError && after.loadedAt !== before.loadedAt;
+      return textContent({
+        reloaded,
+        file: HOST_JSX,
+        loadedAt: after.loadedAt,
+        previousLoadedAt: before.loadedAt,
+        opCount: after.opCount,
+        error: after.reloadError || (reloaded ? null : 'the host was not re-evaluated - restart After Effects'),
+      });
+    },
   };
 
   return {

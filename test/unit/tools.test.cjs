@@ -280,3 +280,25 @@ test('a batched masks call gets a longer host timeout than the default', async (
   await reg.callTool('ae_masks', { command: 'setPathKeys', layerId: 1, keys: [{ time: 0, vertices: null }] });
   assert.ok(seenTimeout >= 60 * 1000, `masks ran with a ${seenTimeout}ms ceiling`);
 });
+
+/*
+ * reloadHost used to answer "reloaded: true" while reloading nothing: it ran
+ * $.evalFile inside a function, so the new definitions were locals that
+ * vanished on return. It is now proven by the host's load stamp changing.
+ */
+function stampHost(before, after, reloadError = null) {
+  return async (op) => ({ ok: true, result: op === 'hostInfo' ? { loadedAt: before, opCount: 40 }
+    : op === 'reloadHost' ? { loadedAt: after, opCount: 40, reloadError } : {} });
+}
+test('reloadHost reports success only when the load stamp changes', async () => {
+  const ok = JSON.parse((await createToolRegistry(stampHost(1, 2)).callTool('ae_diagnostics', { command: 'reloadHost' })).content[0].text);
+  assert.strictEqual(ok.reloaded, true);
+  const stale = JSON.parse((await createToolRegistry(stampHost(1, 1)).callTool('ae_diagnostics', { command: 'reloadHost' })).content[0].text);
+  assert.strictEqual(stale.reloaded, false, 'an unchanged stamp means nothing was re-evaluated');
+  assert.match(stale.error, /not re-evaluated/);
+});
+test('reloadHost surfaces a host file that fails to evaluate', async () => {
+  const bad = JSON.parse((await createToolRegistry(stampHost(1, 1, "SyntaxError: } (line 3)")).callTool('ae_diagnostics', { command: 'reloadHost' })).content[0].text);
+  assert.strictEqual(bad.reloaded, false);
+  assert.match(bad.error, /SyntaxError/);
+});
