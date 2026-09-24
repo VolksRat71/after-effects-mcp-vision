@@ -318,7 +318,8 @@ const TOOLS = [
   {
     name: 'ae_masks',
     description:
-      'Clip a layer with a rectangular mask, and animate that clip.\n\n' +
+      'Masks on a layer: rectangles, arbitrary paths, and whole animated roto paths from a tracker ' +
+      '(one call, keys read from disk if you like), with modes, feather and rename.\n\n' +
       'This is how you reveal part of a layer WITHOUT scaling it. Scaling squashes artwork; ' +
       'a mask reveals it. If you are translating a design where a fixed-size asset is shown ' +
       'progressively (an accordion, a wipe, a progress bar), this is the tool, not ae_set scale.\n\n' +
