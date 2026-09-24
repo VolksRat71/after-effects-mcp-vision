@@ -7,11 +7,13 @@
  * fraction of the context that N separate images would.
  */
 
-const fs = require('fs');
+const { readCompletePng } = require('./png-ready.js');
 
-function loadImage(filePath) {
+async function loadImage(filePath) {
+  // Wait for AE to finish the file - a sequence frame read mid-write decodes
+  // with its bottom rows missing.
+  const b64 = (await readCompletePng(filePath)).toString('base64');
   return new Promise((resolve, reject) => {
-    const b64 = fs.readFileSync(filePath).toString('base64');
     const img = new Image();
     img.onload = () => resolve(img);
     img.onerror = () => reject(new Error(`Could not decode ${filePath}`));

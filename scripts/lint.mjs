@@ -9,6 +9,7 @@
  * session. Catching that here is cheap; catching it in AE is not.
  */
 
+import vm from 'node:vm';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, resolve, extname } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -36,6 +37,22 @@ for (const f of files.filter((f) => ['.js', '.cjs', '.mjs'].includes(extname(f))
     execFileSync(process.execPath, ['--check', f], { stdio: 'pipe' });
   } catch (err) {
     problems.push(`${rel(f)}: does not parse\n    ${String(err.stderr).split('\n')[0]}`);
+  }
+}
+
+// 1b. Every ExtendScript file must parse too. Step 1 only ever checked .js, so a
+// syntax error in a host .jsx shipped silently - and at runtime it does not
+// throw anywhere visible: the host simply fails to load and every call times
+// out. A stray top-level `};` did exactly that. ES3 is valid JavaScript, so
+// Node's parser can check it once preprocessor lines (#include, #target, ...)
+// are blanked out - blanked, not removed, so reported line numbers still match.
+for (const f of files.filter((f) => extname(f) === '.jsx')) {
+  const src = readFileSync(f, 'utf8').replace(/^[ \t]*#[a-z]+\b.*$/gim, '');
+  try {
+    new vm.Script(src, { filename: rel(f) });
+  } catch (err) {
+    const where = (err.stack || '').split('\n')[0];
+    problems.push(`${rel(f)}: does not parse - ${err.message}\n    ${where}`);
   }
 }
 

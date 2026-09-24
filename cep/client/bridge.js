@@ -37,7 +37,24 @@ async function callHost(op, args = {}, timeoutMs = 30000) {
   const request = JSON.stringify({ op, args });
   // Double-encode: the inner string is the JSON payload, the outer form is a
   // valid ExtendScript string literal with everything escaped.
-  const script = `__mcp_exec(${JSON.stringify(request)})`;
+  let script = `__mcp_exec(${JSON.stringify(request)})`;
+
+  /*
+   * A reload has to run at the TOP LEVEL of the script. $.evalFile defines
+   * everything in its calling scope, so the host's old in-function evalFile
+   * redefined the ops as locals that vanished on return - it never reloaded
+   * anything, yet reported success. Top-level statements in an evalScript run
+   * in the global scope the host was first loaded into. A failure is kept in
+   * __mcp_reloadError for the reloadHost op to report, rather than collapsing
+   * to "EvalScript error.".
+   */
+  if (op === 'reloadHost' && args && args.hostPath) {
+    const file = JSON.stringify(String(args.hostPath));
+    script =
+      `try { $.evalFile(new File(${file})); __mcp_reloadError = null; } ` +
+      `catch (e) { __mcp_reloadError = String(e) + (e.line ? ' (line ' + e.line + ')' : ''); }\n` +
+      script;
+  }
 
   const raced = await Promise.race([
     rawEval(script),

@@ -37,31 +37,24 @@ __mcp_ops.sessionInfo = function () {
 };
 
 /*
- * Re-evaluate the host from disk. CEP loads ScriptPath once per extension
- * start, so without this every host edit costs an After Effects restart.
+ * Reloading happens in bridge.js, not here. $.evalFile defines everything in
+ * the CALLING scope, so evaluating the host from inside this function reloaded
+ * nothing - the new definitions were locals of this function and vanished when
+ * it returned - while still reporting success. bridge.js runs the evalFile at
+ * the top level of the same evalScript, then calls this to report the outcome.
  */
-__mcp_ops.reloadHost = function (args) {
-    // The Node side supplies the path; $.fileName is not usable under CEP.
-    var candidates = [];
-    if (args && args.hostPath) { candidates.push(String(args.hostPath)); }
-    // $.fileName returned "8" under CEP, so only trust it if it looks like a path.
-    if (__mcp_hostFile && String(__mcp_hostFile).indexOf("/") !== -1) { candidates.push(String(__mcp_hostFile)); }
-    // Conventional CEP install location, as a last resort.
-    try {
-        candidates.push(Folder.userData.fsName +
-            "/Adobe/CEP/extensions/com.aemcpvision.bridge/host/host.jsx");
-    } catch (e) {}
-
-    var f = null;
-    for (var i = 0; i < candidates.length; i++) {
-        var cand = new File(candidates[i]);
-        if (cand.exists) { f = cand; break; }
-    }
-    if (!f) { throw new Error("could not locate host.jsx; tried: " + candidates.join(", ")); }
-    $.evalFile(f);
+function __mcp_opCount() {
     var n = 0;
     for (var k in __mcp_ops) { if (__mcp_ops.hasOwnProperty(k)) { n++; } }
-    return { reloaded: true, file: f.fsName, opCount: n };
+    return n;
+}
+__mcp_ops.reloadHost = function () {
+    return { loadedAt: __mcp_loadedAt,
+             reloadError: (typeof __mcp_reloadError === "undefined") ? null : __mcp_reloadError,
+             opCount: __mcp_opCount() };
+};
+__mcp_ops.hostInfo = function () {
+    return { loadedAt: __mcp_loadedAt, opCount: __mcp_opCount(), aeVersion: app.version };
 };
 
 __mcp_ops.listOps = function () {

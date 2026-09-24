@@ -62,9 +62,12 @@ begin
   begin
     if ResultCode = 0 then
     begin
-      MsgBox('Please quit After Effects first, then run this installer again.'#13#10#13#10 +
+      // SuppressibleMsgBox, not MsgBox: /SUPPRESSMSGBOXES only answers
+      // suppressible boxes. A plain MsgBox made a silent install with AE open
+      // wait forever on a dialog no one could see (found over SSH on Windows).
+      SuppressibleMsgBox('Please quit After Effects first, then run this installer again.'#13#10#13#10 +
              'After Effects loads extensions when it starts, so it needs to be closed during installation.',
-             mbError, MB_OK);
+             mbError, MB_OK, IDOK);
       Result := False;
     end;
   end;

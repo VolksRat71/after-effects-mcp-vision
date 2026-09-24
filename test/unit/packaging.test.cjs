@@ -81,3 +81,16 @@ test('npm version keeps the manifest in step automatically', () => {
   assert.match(pkg.scripts.version || '', /sync-version\.mjs/,
     'the "version" lifecycle script must run sync-version.mjs so a bump cannot forget the manifest');
 });
+
+/*
+ * /SUPPRESSMSGBOXES only answers boxes shown with SuppressibleMsgBox. A plain
+ * MsgBox in [Code] made a silent install with After Effects open hang forever
+ * on an invisible dialog.
+ */
+test('the Windows installer never shows a box that silent mode cannot answer', () => {
+  const iss = fs.readFileSync(path.join(ROOT, 'scripts', 'installer', 'windows-installer.iss'), 'utf8');
+  const code = iss.slice(iss.indexOf('[Code]'));
+  const plain = code.split('\n').filter((l) => /(^|[^A-Za-z])MsgBox\s*\(/.test(l) && !/^\s*\/\//.test(l));
+  assert.deepStrictEqual(plain, [], 'use SuppressibleMsgBox(..., IDOK) so /SUPPRESSMSGBOXES can answer it');
+  assert.match(code, /SuppressibleMsgBox\(/);
+});

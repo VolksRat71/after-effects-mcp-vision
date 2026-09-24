@@ -261,3 +261,44 @@ test('ae_layout states that rigged mode does not survive Lottie or Rive', () => 
   assert.match(l.description, /Rive/);
   assert.match(l.description, /IDEMPOTENT/);
 });
+
+test('ae_masks exposes batched roto keys, holds and mask modes', () => {
+  const masks = TOOLS.find((t) => t.name === 'ae_masks');
+  const p = masks.inputSchema.properties;
+  for (const cmd of ['setPathKeys', 'setMode']) assert.ok(p.command.enum.includes(cmd), `missing command ${cmd}`);
+  assert.ok(p.keys && p.hold && p.mode && p.maskName, 'keys, hold, mode and maskName must be in the schema');
+  assert.ok(p.mode.enum.includes('subtract'), 'subtract is the mode rotos need for holes');
+  assert.ok(p.keys.items.properties.vertices.type.includes('null'), 'null vertices must be allowed - they mark empty frames');
+  // The description must steer agents off a setPath loop, the thing that cost 4,000 round trips.
+  assert.match(masks.description, /setPathKeys/);
+  assert.match(masks.description, /hold/);
+});
+
+test('a batched masks call gets a longer host timeout than the default', async () => {
+  let seenTimeout = null;
+  const reg = createToolRegistry(async (op, args, timeoutMs) => { seenTimeout = timeoutMs; return { ok: true, result: {} }; });
+  await reg.callTool('ae_masks', { command: 'setPathKeys', layerId: 1, keys: [{ time: 0, vertices: null }] });
+  assert.ok(seenTimeout >= 60 * 1000, `masks ran with a ${seenTimeout}ms ceiling`);
+});
+
+/*
+ * reloadHost used to answer "reloaded: true" while reloading nothing: it ran
+ * $.evalFile inside a function, so the new definitions were locals that
+ * vanished on return. It is now proven by the host's load stamp changing.
+ */
+function stampHost(before, after, reloadError = null) {
+  return async (op) => ({ ok: true, result: op === 'hostInfo' ? { loadedAt: before, opCount: 40 }
+    : op === 'reloadHost' ? { loadedAt: after, opCount: 40, reloadError } : {} });
+}
+test('reloadHost reports success only when the load stamp changes', async () => {
+  const ok = JSON.parse((await createToolRegistry(stampHost(1, 2)).callTool('ae_diagnostics', { command: 'reloadHost' })).content[0].text);
+  assert.strictEqual(ok.reloaded, true);
+  const stale = JSON.parse((await createToolRegistry(stampHost(1, 1)).callTool('ae_diagnostics', { command: 'reloadHost' })).content[0].text);
+  assert.strictEqual(stale.reloaded, false, 'an unchanged stamp means nothing was re-evaluated');
+  assert.match(stale.error, /not re-evaluated/);
+});
+test('reloadHost surfaces a host file that fails to evaluate', async () => {
+  const bad = JSON.parse((await createToolRegistry(stampHost(1, 1, "SyntaxError: } (line 3)")).callTool('ae_diagnostics', { command: 'reloadHost' })).content[0].text);
+  assert.strictEqual(bad.reloaded, false);
+  assert.match(bad.error, /SyntaxError/);
+});

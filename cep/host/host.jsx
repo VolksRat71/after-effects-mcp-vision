@@ -31,6 +31,10 @@
 var __mcp_hostFile = null;
 try { __mcp_hostFile = $.fileName; } catch (e) {}
 
+// Set on every evaluation of this file, so a reload can be PROVEN by the stamp
+// changing rather than assumed from a call that returned without error.
+var __mcp_loadedAt = new Date().getTime();
+
 function __mcp_serialize(obj) {
     try {
         return JSON.stringify(obj);
