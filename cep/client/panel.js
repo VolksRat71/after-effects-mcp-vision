@@ -69,11 +69,13 @@ function clientConfigs(port, token) {
   );
 
   return {
+    // One line on purpose: a `\` continuation works in bash but breaks in
+    // PowerShell and cmd, which is where most Windows users will paste it.
+    // Verified on Windows: the two-line form failed in PowerShell with
+    // "Missing expression after unary operator '--'".
     'Claude Code': {
-      hint: 'Run in a terminal. --scope user adds it to every project.',
-      body:
-        `claude mcp add --transport http --scope user ae-vision ${url} \\\n` +
-        `  --header "Authorization: Bearer ${t}"`,
+      hint: 'Run in any terminal - Terminal, PowerShell, cmd or Git Bash. --scope user adds it to every project.',
+      body: `claude mcp add --transport http --scope user ae-vision ${url} --header "Authorization: Bearer ${t}"`,
     },
     'Claude Desktop': {
       hint: 'Settings > Developer > Edit Config, merge this in, then quit and reopen Claude Desktop. Needs Node.js 18+.',
@@ -142,7 +144,9 @@ async function refresh() {
 
   if (health) {
     setStatus('up', `listening on 127.0.0.1:${PORT}${owned ? ' (panel-owned)' : ''}`);
-    $('node').textContent = `${health.nodeVersion}${health.mcpSdkViable ? '' : '  — too old for MCP SDK'}`;
+    // Just the version. The old "too old for MCP SDK" suffix read like an error,
+    // but not using the SDK is deliberate - see CONTRIBUTING.md.
+    $('node').textContent = health.nodeVersion;
     $('ae').textContent = health.host.reachable
       ? `connected — ${health.host.aeVersion}`
       : `unreachable — ${health.host.error && health.host.error.code}`;

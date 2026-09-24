@@ -20,17 +20,27 @@ in 22.0.
 
 1. **Install.** Download the `.dmg` (macOS) or `.exe` (Windows) from
    [Releases](../../releases), quit After Effects, and run it. The installer is
-   unsigned, so macOS 15+ needs **System Settings > Privacy & Security > Open
-   Anyway** and an admin password the first time — [details](docs/INSTALL.md#first-run-warnings).
-2. **Open After Effects.** The server starts by itself on `127.0.0.1:8791`
-   within a few seconds. No panel needs to be open.
+   unsigned, so the first run needs one extra step
+   ([details](docs/INSTALL.md#first-run-warnings)):
+   - **macOS 15+:** System Settings > Privacy & Security > **Open Anyway**, then
+     an admin password.
+   - **Windows:** at *"Windows protected your PC"*, click **More info**, then
+     **Run anyway**.
+2. **Open After Effects.** The server starts by itself on `127.0.0.1:8791`,
+   about 15 seconds after After Effects finishes loading. No panel needs to be
+   open.
 3. **Connect your client.** Open **Window > Extensions > AE MCP Vision**, pick
    your client, and copy the config — it has your real token filled in. Or, for
-   Claude Code on macOS, in one line:
+   Claude Code, one command:
 
    ```bash
-   claude mcp add --transport http --scope user ae-vision http://127.0.0.1:8791/mcp \
-     --header "Authorization: Bearer $(cat ~/.ae-mcp-vision/token)"
+   # macOS Terminal, or Git Bash on Windows
+   claude mcp add --transport http --scope user ae-vision http://127.0.0.1:8791/mcp --header "Authorization: Bearer $(cat ~/.ae-mcp-vision/token)"
+   ```
+
+   ```powershell
+   # Windows PowerShell
+   claude mcp add --transport http --scope user ae-vision http://127.0.0.1:8791/mcp --header "Authorization: Bearer $(Get-Content ~/.ae-mcp-vision/token)"
    ```
 
 4. **Check it.** Ask your agent to *"run `ae_query` with `sessionInfo`"*. You
