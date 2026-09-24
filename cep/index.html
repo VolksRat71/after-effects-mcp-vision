@@ -98,8 +98,12 @@
           throw new Error('process is undefined - CEP did not expose a Node runtime');
         }
         stage = 'resolving extension root';
-        // file:// gives a URL-encoded __dirname; decode before requiring.
-        var root = decodeURIComponent(window.location.pathname).replace(/\/[^/]*$/, '');
+        // fileURLToPath, not location.pathname: on Windows the pathname is
+        // "/C:/Users/...", which path.join turns into "\C:\..." - a path that does
+        // not exist, so no install on Windows ever booted. fileURLToPath handles
+        // drive letters and %20-decoding on both platforms.
+        var root = require('path').dirname(
+          require('url').fileURLToPath(window.location.href.split(/[?#]/)[0]));
         stage = "require(panel.js) from " + root;
         var panel = require(require('path').join(root, 'client', 'panel.js'));
         stage = 'panel.boot()';

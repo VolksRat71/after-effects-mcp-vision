@@ -260,3 +260,28 @@ test('a CEP panel origin reaches the server; a web origin is still refused', asy
     }
   });
 });
+
+/*
+ * Streamable HTTP requires 405 (not 404) for a GET on the MCP endpoint when the
+ * server offers no SSE stream. Found by installing into Claude Desktop, whose
+ * mcp-remote bridge logged "Failed to open SSE stream: Not Found" on connect.
+ */
+test('GET and DELETE on the MCP endpoint answer 405 with Allow: POST', async () => {
+  await withServer(async ({ port, token }) => {
+    for (const method of ['GET', 'DELETE']) {
+      const res = await fetch(`http://127.0.0.1:${port}/mcp`, {
+        method,
+        headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
+      });
+      assert.strictEqual(res.status, 405, `${method} /mcp must be 405, not 404`);
+      assert.strictEqual(res.headers.get('allow'), 'POST');
+    }
+  });
+});
+
+test('the 405 is still behind authentication', async () => {
+  await withServer(async ({ port }) => {
+    const res = await fetch(`http://127.0.0.1:${port}/mcp`, { method: 'GET' });
+    assert.strictEqual(res.status, 401, 'an unauthenticated GET must not learn anything about the endpoint');
+  });
+});

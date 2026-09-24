@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ExtensionManifest Version="12.0"
     ExtensionBundleId="com.aemcpvision.bridge"
-    ExtensionBundleVersion="2.0.0"
+    ExtensionBundleVersion="2.0.3"
     ExtensionBundleName="AE MCP Vision"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 
@@ -17,8 +17,8 @@
   -->
 
   <ExtensionList>
-    <Extension Id="com.aemcpvision.bridge.server" Version="2.0.0" />
-    <Extension Id="com.aemcpvision.bridge.panel"  Version="2.0.0" />
+    <Extension Id="com.aemcpvision.bridge.server" Version="2.0.3" />
+    <Extension Id="com.aemcpvision.bridge.panel"  Version="2.0.3" />
   </ExtensionList>
 
   <ExecutionEnvironment>

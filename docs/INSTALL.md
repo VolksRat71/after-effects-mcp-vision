@@ -177,6 +177,10 @@ curl -H "Authorization: Bearer $(cat ~/.ae-mcp-vision/token)" http://127.0.0.1:8
 running. The server lives inside it, so it exists only while After Effects is
 open.
 
+**Windows: After Effects opens but nothing listens on 8791.** Releases before
+2.0.3 could not start on Windows at all - the extension computed an invalid
+path to its own files. Install 2.0.3 or later.
+
 **The panel says "No server on port 8791" while your client works.** A bug in
 2.0.0 that stopped the panel reaching its own server. Install 2.0.1 or later.
 

@@ -29,7 +29,12 @@
         }
         note('boot: require present, node ' + process.version);
         stage = 'resolving extension root';
-        var root = decodeURIComponent(window.location.pathname).replace(/\/[^/]*$/, '');
+        // fileURLToPath, not location.pathname: on Windows the pathname is
+        // "/C:/Users/...", which path.join turns into "\C:\..." - a path that does
+        // not exist, so no install on Windows ever booted. fileURLToPath handles
+        // drive letters and %20-decoding on both platforms.
+        var root = require('path').dirname(
+          require('url').fileURLToPath(window.location.href.split(/[?#]/)[0]));
         note('boot: extension root ' + root);
         stage = 'loading server-boot';
         var boot = require(require('path').join(root, 'client', 'server-boot.js'));

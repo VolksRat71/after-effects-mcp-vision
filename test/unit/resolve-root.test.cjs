@@ -1,39 +1,54 @@
 const test = require('node:test');
 const assert = require('node:assert');
+const path = require('node:path');
+const url = require('node:url');
 
 /*
- * Guards the URL-encoding bug that broke every macOS install: CEP serves the
- * page over file://, so the path contains %20 for the space in
- * "Application Support" and a relative require() can never resolve.
+ * How the entry pages find their own folder: path.dirname(fileURLToPath(href)).
+ *
+ * Two platform bugs lived here. macOS: CEP serves pages over file://, so
+ * "Application Support" arrives as %20 and a naive path never resolves. Windows:
+ * the URL pathname is "/C:/Users/...", and the old strip-the-filename approach
+ * handed path.join "/C:/..." -> "\C:\...", so no Windows install ever booted -
+ * found on the first real Windows run. fileURLToPath handles both.
+ *
+ * The real runtime converts with the host platform's rules. To test Windows
+ * rules from macOS/Linux CI, pass { windows: true }, which Node added in 22.1 /
+ * 20.13; on older Node the Windows cases skip rather than pass vacuously.
  */
 
-function decodeRoot(pathname) {
-  let decoded;
-  try { decoded = decodeURIComponent(pathname); } catch (e) { decoded = pathname; }
-  if (/\.html?$/i.test(decoded)) decoded = decoded.replace(/\/[^/]*$/, '');
-  return decoded;
+const WIN_SUPPORTED = url.fileURLToPath('file:///C:/x', { windows: true }) === 'C:\\x';
+
+function rootFor(href, windows) {
+  const p = windows ? path.win32 : path.posix;
+  return p.dirname(url.fileURLToPath(href.split(/[?#]/)[0], { windows }));
 }
 
-test('a %20-encoded CEP path decodes to the real directory', () => {
+test('macOS: %20 in "Application Support" decodes to the real folder', () => {
   assert.strictEqual(
-    decodeRoot('/Users/x/Library/Application%20Support/Adobe/CEP/extensions/com.aemcpvision.bridge/index.html'),
+    rootFor('file:///Users/x/Library/Application%20Support/Adobe/CEP/extensions/com.aemcpvision.bridge/index.html', false),
     '/Users/x/Library/Application Support/Adobe/CEP/extensions/com.aemcpvision.bridge',
   );
 });
 
-test('the document name is trimmed for either entry page', () => {
-  assert.strictEqual(decodeRoot('/a/b/server.html'), '/a/b');
-  assert.strictEqual(decodeRoot('/a/b/index.html'), '/a/b');
+test('Windows: the drive letter survives, with no leading slash', { skip: !WIN_SUPPORTED && 'needs Node 20.13+/22.1+' }, () => {
+  const root = rootFor('file:///C:/Users/natha/AppData/Roaming/Adobe/CEP/extensions/com.aemcpvision.bridge/server.html', true);
+  assert.strictEqual(root, 'C:\\Users\\natha\\AppData\\Roaming\\Adobe\\CEP\\extensions\\com.aemcpvision.bridge');
+  assert.ok(path.win32.isAbsolute(root));
+  // The exact value that broke every Windows install:
+  assert.notStrictEqual(path.win32.join(root, 'client', 'server-boot.js')[0], '\\');
 });
 
-test('an already-decoded path is left alone', () => {
-  assert.strictEqual(decodeRoot('/Users/x/Application Support/ext/index.html'), '/Users/x/Application Support/ext');
+test('Windows: %20 decodes too', { skip: !WIN_SUPPORTED && 'needs Node 20.13+/22.1+' }, () => {
+  assert.strictEqual(rootFor('file:///C:/My%20Ext/index.html', true), 'C:\\My Ext');
 });
 
-test('a malformed escape does not throw', () => {
-  assert.doesNotThrow(() => decodeRoot('/bad/%E0%A4%A/index.html'));
+test('a query or hash on the URL does not leak into the path', () => {
+  assert.strictEqual(rootFor('file:///a/b/index.html?x=1#y', false), '/a/b');
 });
 
-test('other encoded characters decode too', () => {
-  assert.strictEqual(decodeRoot('/a/My%20Ext%20v2/index.html'), '/a/My Ext v2');
+test('the old strip-the-filename approach really did break Windows', { skip: !WIN_SUPPORTED && 'needs Node 20.13+/22.1+' }, () => {
+  const pathname = '/C:/Users/natha/ext/server.html';
+  const oldRoot = decodeURIComponent(pathname).replace(/\/[^/]*$/, '');
+  assert.strictEqual(path.win32.join(oldRoot, 'client', 'server-boot.js'), '\\C:\\Users\\natha\\ext\\client\\server-boot.js');
 });
