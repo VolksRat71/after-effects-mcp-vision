@@ -168,12 +168,14 @@ var __mcp_queryOps = {
         var paths = args.paths || [];
         var values = [];
         var errors = [];
+        var hasTime = (args.time !== undefined && args.time !== null);
+        var evalTime = hasTime ? Number(args.time) : layer.containingComp.time;
         for (var i = 0; i < paths.length; i++) {
             try {
                 var p = __mcp_propByPath(layer, paths[i]);
                 var rec = {
                     path: paths[i],
-                    value: __mcp_readValue(p),
+                    value: __mcp_readValue(p, evalTime),
                     valueType: __mcp_valueTypeName(p)
                 };
                 try { if (p.numKeys) { rec.numKeys = p.numKeys; } } catch (e) {}
@@ -183,7 +185,7 @@ var __mcp_queryOps = {
                 errors.push({ path: paths[i], code: "unknown_path", message: String(e) });
             }
         }
-        return { layerId: layer.id, values: values, errors: errors };
+        return { layerId: layer.id, time: evalTime, values: values, errors: errors };
     },
 
     selection: function () {

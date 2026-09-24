@@ -94,8 +94,11 @@ const TOOLS = [
       'This is how you reach effects, masks, text animators and shape paths - not just transform. ' +
       'depth defaults to 2, which is transform plus effect group headers. Raise it to drill into ' +
       'ONE branch via `path`; a depth-6 walk of a shape layer can run to thousands of tokens.\n' +
-      '- propertyValues: read specific properties by path.\n' +
-      '- selection: what the user currently has selected.\n' +
+      '- propertyValues: read specific properties by path, at `time` if given. Mask paths come back as ' +
+      'a summary: vertexCount, closed, bbox, collapsed.\n' +
+      '- selection: what the user currently has selected.\n' +      '- describe: the live schema of a tool ({tool:"ae_masks"}), straight from this server. Use it when ' +
+      'a command or argument you expect is missing from your tool list - clients can cache definitions ' +
+      'from session start.\n' +
       '- bounds: how large a layer ACTUALLY renders, via sourceRectAtTime. Use this before ' +
       'positioning text - a string\'s rendered width is not knowable from its font size, and ' +
       'guessing is how text ends up clipped or off-centre. Returns layer-space and an ' +
@@ -105,7 +108,8 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: ['sessionInfo', 'tree', 'find', 'propertyKeys', 'propertyValues', 'selection', 'bounds'] },
+        command: { type: 'string', enum: ['sessionInfo', 'tree', 'find', 'propertyKeys', 'propertyValues', 'selection', 'bounds', 'describe'] },
+        tool: { type: 'string', description: 'describe: the tool whose live schema to return, e.g. "ae_masks". Omit for every tool name.' },
         compId: { type: 'number', description: 'Composition id. Defaults to the active comp.' },
         layerId: { type: 'number', description: 'Layer id, required by propertyKeys and propertyValues.' },
         name: { type: 'string', description: 'find: case-insensitive substring.' },
@@ -115,7 +119,7 @@ const TOOLS = [
         paths: { type: 'array', items: { type: 'array', items: { type: 'string' } }, description: 'propertyValues: matchName paths to read.' },
         depth: { type: 'number', description: 'propertyKeys depth, 1-8. Default 2. Start shallow.' },
         includeValues: { type: 'boolean', description: 'propertyKeys: include current values. Roughly doubles output size.' },
-        time: { type: 'number', description: 'bounds: evaluate at this time. Defaults to the playhead.' },
+        time: { type: 'number', description: 'bounds/propertyValues: evaluate at this time (comp seconds). Defaults to the playhead; propertyValues reports the time it used.' },
         includeExtents: { type: 'boolean', description: 'bounds: include masks and effects in the box.' },
         limit: { type: 'number', description: 'find: max matches. Default 100.' },
       },
@@ -344,10 +348,11 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: ['add', 'setRect', 'setPath', 'setPathKeys', 'setMode', 'setFeather', 'list', 'remove'] },
+        command: { type: 'string', enum: ['add', 'setRect', 'setPath', 'setPathKeys', 'setMode', 'rename', 'setFeather', 'list', 'remove'] },
         layerId: { type: 'number' },
         maskIndex: { type: 'number', description: 'Defaults to the most recently added mask.' },
-        maskName: { type: 'string', description: 'setPathKeys/setMode: address a mask by name instead of index.' },
+        maskName: { type: 'string', description: 'setPathKeys/setMode/rename: address a mask by name instead of index.' },
+        newName: { type: 'string', description: 'rename: the new mask name.' },
         name: { type: 'string' },
         left: { type: 'number', description: 'Rect left in layer space. Default 0.' },
         top: { type: 'number', description: 'Rect top in layer space. Default 0.' },
@@ -765,6 +770,14 @@ function createToolRegistry(callHost) {
 
   const handlers = {
     ae_query: async (a) => {
+      // The live schema, from this server. A client that cached tool
+      // definitions at session start can still find new commands and args.
+      if (a.command === 'describe') {
+        if (!a.tool) return textContent({ tools: TOOLS.map((t) => t.name), bridge: bridgeInfo() });
+        const def = TOOLS.find((t) => t.name === a.tool);
+        if (!def) return errorContent(`No tool named ${a.tool}. Known: ${TOOLS.map((t) => t.name).join(', ')}`);
+        return textContent({ ...def, bridge: bridgeInfo() });
+      }
       const out = await host(a.command, a);
       // Lets a client notice a stale tool list: compare this with what it expects.
       if (a.command === 'sessionInfo' && out && typeof out === 'object') out.bridge = bridgeInfo();

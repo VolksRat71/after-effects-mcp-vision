@@ -132,17 +132,30 @@ function __mcp_propTypeName(p) {
 
 /* Values cross the wire as JSON. Arrays and numbers pass through; anything
    exotic (shape, text document) is described rather than serialized raw. */
-function __mcp_readValue(p) {
+function __mcp_readValue(p, time) {
     try {
         var vt = p.propertyValueType;
         if (vt === PropertyValueType.NO_VALUE) { return null; }
+        var atTime = (time !== undefined && time !== null);
         if (vt === PropertyValueType.TEXT_DOCUMENT) {
-            var td = p.value;
+            var td = atTime ? p.valueAtTime(time, false) : p.value;
             return { _type: "TextDocument", text: td.text, fontSize: td.fontSize, font: td.font };
         }
-        if (vt === PropertyValueType.SHAPE) { return { _type: "Shape", unsupported: true }; }
+        if (vt === PropertyValueType.SHAPE) {
+            // A summary, not the vertex list: a roto path can hold hundreds of points.
+            var shp = atTime ? p.valueAtTime(time, false) : p.value;
+            var sv = shp.vertices, l = null, t = null, r = null, b = null;
+            for (var si = 0; si < sv.length; si++) {
+                var x = sv[si][0], y = sv[si][1];
+                if (l === null || x < l) { l = x; } if (r === null || x > r) { r = x; }
+                if (t === null || y < t) { t = y; } if (b === null || y > b) { b = y; }
+            }
+            return { _type: "Shape", vertexCount: sv.length, closed: shp.closed,
+                     bbox: sv.length ? [l, t, r, b] : null,
+                     collapsed: sv.length > 0 && r - l < 1e-6 && b - t < 1e-6 };
+        }
         if (vt === PropertyValueType.MARKER) { return { _type: "Marker", unsupported: true }; }
-        var v = p.value;
+        var v = atTime ? p.valueAtTime(time, false) : p.value;
         if (v instanceof Array) {
             var out = [];
             for (var i = 0; i < v.length; i++) { out.push(Number(v[i])); }

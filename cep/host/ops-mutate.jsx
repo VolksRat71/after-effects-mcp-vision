@@ -578,7 +578,18 @@ var __mcp_mutateOps = {
                 if (runEnd !== runStart) { cTimes.push(frames[runEnd].t); cShapes.push(collapsed(after || before)); }
             }
 
+            /*
+             * A call REPLACES its own time range: path keys inside [first, last]
+             * go first, so a re-run gives exactly what was sent instead of
+             * layering new keys over an earlier run's shapes and collapses.
+             */
             var pathProp = km.property("ADBE Mask Shape");
+            var rangeStart = Number(sorted[0].time), rangeEnd = Number(sorted[sorted.length - 1].time);
+            var clearedPathKeys = 0;
+            for (var pk = pathProp.numKeys; pk >= 1; pk--) {
+                var pkt = pathProp.keyTime(pk);
+                if (pkt >= rangeStart - 1e-6 && pkt <= rangeEnd + 1e-6) { pathProp.removeKey(pk); clearedPathKeys++; }
+            }
             var allTimes = pTimes.concat(cTimes), allShapes = pShapes.concat(cShapes);
             if (allTimes.length) { pathProp.setValuesAtTimes(allTimes, allShapes); }
             var hold = (args.hold === true);
@@ -605,9 +616,12 @@ var __mcp_mutateOps = {
                 var fd = layer.containingComp.frameDuration;
                 var restoreAt = tEnd + fd;
                 var afterVal = opProp.valueAtTime(restoreAt, false);   // read BEFORE touching anything
+                // Also drop keys at or past the comp's end: an older build wrote a
+                // restore key there, and no current call can own it.
+                var compEnd = layer.containingComp.duration;
                 for (var dk = opProp.numKeys; dk >= 1; dk--) {
                     var kt = opProp.keyTime(dk);
-                    if (kt >= tStart - 1e-6 && kt <= tEnd + 1e-6) { opProp.removeKey(dk); }
+                    if ((kt >= tStart - 1e-6 && kt <= tEnd + 1e-6) || kt >= compEnd - 1e-6) { opProp.removeKey(dk); }
                 }
                 opProp.setValuesAtTimes(oTimes, oVals);
                 var governed = false;
@@ -630,11 +644,19 @@ var __mcp_mutateOps = {
 
             return { layerId: layer.id, maskIndex: km.propertyIndex, name: km.name,
                      pathKeys: pTimes.length, collapsedKeys: cTimes.length, opacityKeys: opacityKeys,
+                     clearedPathKeys: clearedPathKeys, opacityNumKeys: opProp.numKeys,
                      emptyFrames: empty, degenerateShapes: degenerate, hold: hold,
                      opacityRestoredAfterRange: restoredAfter,
                      numKeys: pathProp.numKeys, elapsedMs: new Date().getTime() - started };
         }
 
+        if (cmd === "rename") {
+            var rm = pickMask();
+            if (!args.newName) { throw new Error("rename needs newName"); }
+            var oldName = rm.name;
+            rm.name = String(args.newName);
+            return { layerId: layer.id, maskIndex: rm.propertyIndex, oldName: oldName, name: rm.name };
+        }
         if (cmd === "setFeather") {
             var tf = args.maskIndex ? parade.property(Number(args.maskIndex)) : parade.property(parade.numProperties);
             if (!tf) { throw new Error("No mask to set - add one first"); }
