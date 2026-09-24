@@ -16,6 +16,7 @@ const fs = require('fs');
 const nodePath = require('path');
 const { buildContactSheet } = require('./contact-sheet.js');
 const { readCompletePng } = require('./png-ready.js');
+const { bridgeInfo } = require('./bridge-info.js');
 
 /*
  * Absolute path to the ExtendScript entry point. $.fileName is not meaningful
@@ -23,6 +24,54 @@ const { readCompletePng } = require('./png-ready.js');
  * - which does know where it lives - hands the path to reloadHost.
  */
 const HOST_JSX = nodePath.join(__dirname, '..', 'host', 'host.jsx');
+
+/*
+ * Keys for ae_masks setPathKeys, read from a JSON file.
+ *   - an array of {time, vertices}          -> used as-is
+ *   - {keys: [...]}                          -> used as-is
+ *   - an array of per-frame vertices/null    -> time = frame / fps
+ *   - {fps, frames: [...]}                   -> the same
+ * keysPointer is an RFC 6901 JSON Pointer into the file (e.g. "/add/0"), so a
+ * tracker's own output works without a conversion step. fps comes from the
+ * argument, else the selected node, else the file's root.
+ */
+const MAX_KEYS_FILE = 50 * 1024 * 1024;
+function loadKeys(keysPath, keysPointer, fpsArg) {
+  const nodePath = require('path');
+  if (!nodePath.isAbsolute(String(keysPath))) throw new Error(`keysPath must be absolute, got ${keysPath}`);
+  let stat;
+  try { stat = fs.statSync(keysPath); } catch (e) { throw new Error(`keysPath: no file at ${keysPath}`); }
+  if (stat.size > MAX_KEYS_FILE) throw new Error(`keysPath: ${keysPath} is ${(stat.size / 1e6).toFixed(1)} MB; split it (limit 50 MB)`);
+  let root;
+  try { root = JSON.parse(fs.readFileSync(keysPath, 'utf8')); } catch (e) { throw new Error(`keysPath: ${keysPath} is not valid JSON - ${e.message}`); }
+  let node = root;
+  if (keysPointer) {
+    for (const raw of String(keysPointer).split('/').slice(1)) {
+      const part = raw.replace(/~1/g, '/').replace(/~0/g, '~');
+      if (node === null || typeof node !== 'object' || !(part in node)) throw new Error(`keysPointer ${keysPointer}: nothing at "${part}"`);
+      node = node[part];
+    }
+  }
+  const fromFrames = (frames, fps) => {
+    const f = Number(fps);
+    if (!(f > 0)) throw new Error('per-frame data needs an fps (argument, or "fps" in the file)');
+    return frames.map((v, i) => ({ time: i / f, vertices: v }));
+  };
+  let keys;
+  if (Array.isArray(node)) {
+    const first = node.find((x) => x !== null && x !== undefined);
+    keys = first && !Array.isArray(first) && typeof first === 'object' && 'time' in first
+      ? node : fromFrames(node, fpsArg || root.fps);
+  } else if (node && Array.isArray(node.keys)) {
+    keys = node.keys;
+  } else if (node && Array.isArray(node.frames)) {
+    keys = fromFrames(node.frames, fpsArg || node.fps || root.fps);
+  } else {
+    throw new Error('keysPath: expected an array of keys, {keys:[...]}, per-frame vertices, or {fps, frames:[...]}');
+  }
+  if (!keys.length) throw new Error('keysPath: the file has no keys');
+  return keys;
+}
 
 function textContent(value) {
   return { content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }] };
@@ -199,23 +248,36 @@ const TOOLS = [
     description:
       'Project-level operations: create compositions, import footage, add items to comps, delete ' +
       'items, save. Import takes an absolute path. save on an untitled project needs an explicit ' +
-      'path. Prefer working in the comp the user already has open over creating new ones.',
+      'path, and creates missing folders. Prefer working in the comp the user already has open over ' +
+      'creating new ones.\n\n' +
+      'HANDING A PROJECT TO SOMEONE: renameItem (comps, footage, folders - ae_layers rename is layers ' +
+      'only), createFolder, moveToFolder, replaceFootage (relink; sequence:true for an image ' +
+      'sequence), and collect - copies every file-based footage item into <folder>/Footage, relinks ' +
+      'it, and saves the .aep into <folder>. Like AE\'s Collect Files the original .aep on disk is ' +
+      'untouched, but the OPEN project becomes the collected copy. Image sequences are reported in ' +
+      '"skipped", not copied.',
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: ['createComp', 'import', 'addToComp', 'deleteItem', 'save', 'new', 'open', 'close'] },
+        command: { type: 'string', enum: ['createComp', 'import', 'addToComp', 'deleteItem', 'save', 'new', 'open', 'close', 'renameItem', 'createFolder', 'moveToFolder', 'replaceFootage', 'collect'] },
         name: { type: 'string' },
         width: { type: 'number' },
         height: { type: 'number' },
         duration: { type: 'number' },
         frameRate: { type: 'number' },
         pixelAspect: { type: 'number' },
-        path: { type: 'string', description: 'import source, or save destination.' },
+        path: { type: 'string', description: 'import source, save destination (missing folders are created), or replaceFootage\'s new file.' },
         importAs: { type: 'string', enum: ['footage', 'composition'] },
         itemId: { type: 'number' },
         compId: { type: 'number' },
         overwrite: { type: 'boolean', description: 'save: required to overwrite an existing project file.' },
         discardUnsaved: { type: 'boolean', description: 'new/open: required to abandon unsaved changes in the current project.' },
+        itemIds: { type: 'array', items: { type: 'number' }, description: 'moveToFolder: the items to move.' },
+        folderId: { type: 'number', description: 'moveToFolder: destination folder id. Omit for the project root.' },
+        parentFolderId: { type: 'number', description: 'createFolder: parent folder id. Omit for the project root.' },
+        sequence: { type: 'boolean', description: 'replaceFootage: path is the first frame of an image sequence.' },
+        folder: { type: 'string', description: 'collect: absolute folder to collect into (created if missing).' },
+        projectName: { type: 'string', description: 'collect: file name for the collected .aep. Default: the current project\'s name.' },
       },
       required: ['command'],
     },
@@ -273,7 +335,10 @@ const TOOLS = [
       'mask shows nothing; the tool keys Mask Opacity to 0 there (as holds) automatically. ' +
       'A request body is capped at 5 MB: about 490,000 vertices with integer coordinates, half ' +
       'that with decimals (a 505-frame, 83,000-vertex roto mask is 0.9 MB). Split a larger job across ' +
-      'calls by time range - keys from later calls are added alongside earlier ones.\n\n' +
+      'calls by time range - keys from later calls are added alongside earlier ones, and each call owns ' +
+      'the Mask Opacity keys inside its own time range, so split calls cannot leave each other stuck at 0.\n\n' +
+      'FROM A FILE: pass keysPath (absolute) instead of keys - tracker output goes straight from disk, ' +
+      'costing no tokens. keysPointer selects inside the file ("/add/0"); per-frame arrays use fps.\n\n' +
       'MODES: pass mode on add, or call setMode. Holes (the gap between an arm and a torso) ' +
       'need mode:"subtract" on their own mask - inverting a mask is not the same thing.',
     inputSchema: {
@@ -308,6 +373,11 @@ const TOOLS = [
             required: ['time'],
           },
         },
+        keysPath: { type: 'string', description: 'setPathKeys: absolute path to a JSON file of keys, instead of passing them inline. ' +
+          'Accepts [{time, vertices}], {keys:[...]}, per-frame [vertices|null, ...], or {fps, frames:[...]}. Use this for tracker ' +
+          'output - inline vertices cost the agent tokens for every point.' },
+        keysPointer: { type: 'string', description: 'setPathKeys: JSON Pointer into keysPath\'s file, e.g. "/add/0" for slot 0 of {add:[[...]]}.' },
+        fps: { type: 'number', description: 'setPathKeys with per-frame data: frames per second (time = frame/fps). Defaults to the file\'s "fps".' },
         hold: { type: 'boolean', description: 'setPathKeys: make every key in this call a hold keyframe. Use for traced/tracked outlines.' },
         mode: { type: 'string', enum: ['add', 'subtract', 'intersect', 'lighten', 'darken', 'difference', 'none'],
           description: 'add/setMode: mask blend mode. Default for a new mask is add.' },
@@ -471,10 +541,12 @@ const TOOLS = [
         overwrite: { type: 'boolean', description: 'Required to replace an existing file.' },
         jobs: {
           type: 'array',
-          description: 'batch: [{compId, outputPath, omTemplate?, rsTemplate?}]. Queued together and rendered in one pass.',
+          description: 'batch: [{compId, outputPath, omTemplate?, rsTemplate?, overwrite?}]. Queued together and rendered in one pass. ' +
+            'overwrite on a job, or on the whole call, replaces an existing file.',
           items: { type: 'object', properties: {
             compId: { type: 'number' }, outputPath: { type: 'string' },
             omTemplate: { type: 'string' }, rsTemplate: { type: 'string' },
+            overwrite: { type: 'boolean', description: 'Replace this job\'s existing output file.' },
           }, required: ['compId', 'outputPath'] },
         },
         renderImmediately: { type: 'boolean', description: 'queueInAME: start AME rendering rather than just queueing.' },
@@ -692,7 +764,12 @@ function createToolRegistry(callHost) {
   }
 
   const handlers = {
-    ae_query: (a) => host(a.command, a).then(textContent),
+    ae_query: async (a) => {
+      const out = await host(a.command, a);
+      // Lets a client notice a stale tool list: compare this with what it expects.
+      if (a.command === 'sessionInfo' && out && typeof out === 'object') out.bridge = bridgeInfo();
+      return textContent(out);
+    },
     ae_set: (a) => host(a.command === 'expressions' ? 'setExpression' : 'set', a).then(textContent),
     ae_animate: async (a) => {
       const result = await host('keyframes', a);
@@ -706,7 +783,16 @@ function createToolRegistry(callHost) {
       }
       return textContent(result);
     },
-    ae_masks: (a) => host('masks', a).then(textContent),
+    ae_masks: async (a) => {
+      // Tracker output can be ~90,000 vertices; routing that through the agent's
+      // tool-call arguments costs hundreds of thousands of tokens. keysPath
+      // reads it from disk instead.
+      if (a.command === 'setPathKeys' && a.keysPath) {
+        const { keysPath, keysPointer, fps, ...rest } = a;
+        return textContent(await host('masks', { ...rest, keys: loadKeys(keysPath, keysPointer, fps) }));
+      }
+      return textContent(await host('masks', a));
+    },
     ae_timing: (a) => host('timing', a).then(textContent),
     ae_shapes: (a) => {
       const op = a.command === 'create' ? 'shapes' : 'shapeOps';

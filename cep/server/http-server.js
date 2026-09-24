@@ -10,6 +10,7 @@
  * (the two Obsidian vaults) race for ports at launch and have silently swapped.
  */
 
+const { bridgeInfo } = require('./bridge-info.js');
 const http = require('http');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -247,6 +248,7 @@ function createServer(callHost, options = {}) {
       json(res, 200, {
         ok: true,
         service: 'ae-mcp-vision',
+        bridge: bridgeInfo(),
         nodeVersion: process.version,
         mcpSdkViable: satisfiesNode18(process.version),
         host,

@@ -716,9 +716,14 @@ var __mcp_buildOps = {
                     var job = jobs[j];
                     var jc = __mcp_compById(job.compId);
                     var jf = new File(String(job.outputPath));
-                    if (jf.exists && args.overwrite !== true) {
-                        throw new Error("would overwrite " + job.outputPath);
+                    // Per job, or for the whole batch. Only the batch-level flag was
+                    // honoured before, and the job schema had no field for it.
+                    var jobOverwrite = (job.overwrite === true) || (args.overwrite === true);
+                    if (jf.exists && !jobOverwrite) {
+                        throw new Error("would overwrite " + job.outputPath + " - pass overwrite:true on the job or the batch");
                     }
+                    // Remove the old file so the post-render check reports THIS render.
+                    if (jf.exists) { jf.remove(); }
                     var ji = rq.items.add(jc);
                     if (job.rsTemplate) { ji.applyTemplate(String(job.rsTemplate)); }
                     var jm = ji.outputModule(1);

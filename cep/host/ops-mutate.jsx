@@ -552,11 +552,36 @@ var __mcp_mutateOps = {
                 }
             }
 
-            // Only touch opacity when something is actually empty.
-            var opacityKeys = 0;
-            if (empty > 0) {
-                var opProp = km.property("ADBE Mask Opacity");
+            /*
+             * Opacity is managed when this call has an empty frame, or when an
+             * earlier call already keyed it. A job split across calls by time
+             * range used to compute transitions per call only, so one call's
+             * trailing "empty" could leave another call's range stuck at 0.
+             * Now a call OWNS its range [first key, last key]: it clears the
+             * opacity keys inside it, writes its own transitions, and hands back
+             * to whatever the frame after its range showed before the call.
+             */
+            var opProp = km.property("ADBE Mask Opacity");
+            var opacityKeys = 0, restoredAfter = null;
+            if (empty > 0 || opProp.numKeys > 0) {
+                var tStart = Number(sorted[0].time), tEnd = Number(sorted[sorted.length - 1].time);
+                var fd = layer.containingComp.frameDuration;
+                var restoreAt = tEnd + fd;
+                var afterVal = opProp.valueAtTime(restoreAt, false);   // read BEFORE touching anything
+                for (var dk = opProp.numKeys; dk >= 1; dk--) {
+                    var kt = opProp.keyTime(dk);
+                    if (kt >= tStart - 1e-6 && kt <= tEnd + 1e-6) { opProp.removeKey(dk); }
+                }
                 opProp.setValuesAtTimes(oTimes, oVals);
+                var governed = false;
+                for (var ek = 1; ek <= opProp.numKeys; ek++) {
+                    if (Math.abs(opProp.keyTime(ek) - restoreAt) < 1e-6) { governed = true; break; }
+                }
+                if (!governed && oVals[oVals.length - 1] !== afterVal) {
+                    opProp.setValueAtTime(restoreAt, afterVal);
+                    oTimes.push(restoreAt);
+                    restoredAfter = afterVal;
+                }
                 for (var o = 0; o < oTimes.length; o++) {
                     opProp.setInterpolationTypeAtKey(opProp.nearestKeyIndex(oTimes[o]),
                         KeyframeInterpolationType.HOLD, KeyframeInterpolationType.HOLD);
@@ -567,6 +592,7 @@ var __mcp_mutateOps = {
             return { layerId: layer.id, maskIndex: km.propertyIndex, name: km.name,
                      pathKeys: pTimes.length, opacityKeys: opacityKeys,
                      emptyFrames: empty, degenerateShapes: degenerate, hold: hold,
+                     opacityRestoredAfterRange: restoredAfter,
                      numKeys: pathProp.numKeys, elapsedMs: new Date().getTime() - started };
         }
 
@@ -625,6 +651,99 @@ var __mcp_mutateOps = {
             var src = __mcp_itemById(args.itemId);
             return __mcp_layerSummary(comp2.layers.add(src));
         }
+        /*
+         * Project hygiene - what it takes to hand a project to someone else.
+         * Found preparing a roto project to share as an example: layers could be
+         * renamed but project items could not, and there were no folders,
+         * relinking or Collect Files.
+         */
+        if (cmd === "renameItem") {
+            var ri = __mcp_itemById(args.itemId);
+            if (!args.name) { throw new Error("renameItem requires name"); }
+            var riFrom = ri.name;
+            ri.name = String(args.name);
+            return { itemId: ri.id, from: riFrom, to: ri.name };
+        }
+        if (cmd === "createFolder") {
+            var pf = args.parentFolderId ? __mcp_itemById(args.parentFolderId) : p.rootFolder;
+            if (!(pf instanceof FolderItem)) { throw new Error("parentFolderId " + args.parentFolderId + " is not a folder"); }
+            var nf = p.items.addFolder(String(args.name || "Folder"));
+            if (pf !== p.rootFolder) { nf.parentFolder = pf; }
+            return { folderId: nf.id, name: nf.name, parentFolderId: nf.parentFolder.id };
+        }
+        if (cmd === "moveToFolder") {
+            var tf2 = args.folderId ? __mcp_itemById(args.folderId) : p.rootFolder;
+            if (!(tf2 instanceof FolderItem)) { throw new Error("folderId " + args.folderId + " is not a folder"); }
+            var mids = args.itemIds || [];
+            if (!mids.length) { throw new Error("moveToFolder requires itemIds"); }
+            var moved = [], moveErrors = [];
+            for (var mi = 0; mi < mids.length; mi++) {
+                try {
+                    var mItem = __mcp_itemById(mids[mi]);
+                    if (mItem === tf2) { throw new Error("cannot move a folder into itself"); }
+                    mItem.parentFolder = tf2;
+                    moved.push(mItem.id);
+                } catch (e) { moveErrors.push({ itemId: mids[mi], message: String(e) }); }
+            }
+            return { folderId: tf2.id, moved: moved, errors: moveErrors };
+        }
+        if (cmd === "replaceFootage") {
+            var fItem = __mcp_itemById(args.itemId);
+            if (!(fItem instanceof FootageItem) || !fItem.file) { throw new Error("item " + args.itemId + " is not file-based footage"); }
+            var nFile = new File(String(args.path || ""));
+            if (!nFile.exists) { throw new Error("No file at " + args.path); }
+            var fFrom = fItem.file.fsName;
+            if (args.sequence === true) { fItem.replaceWithSequence(nFile, true); } else { fItem.replace(nFile); }
+            return { itemId: fItem.id, from: fFrom, to: fItem.file ? fItem.file.fsName : null, missing: fItem.footageMissing };
+        }
+        if (cmd === "collect") {
+            /*
+             * Collect Files. AE's own command opens a modal dialog and is not
+             * scriptable, so this does the same job directly: copy every
+             * file-based footage item into <folder>/Footage, relink it, and save
+             * the project into <folder>. Like AE's command, the original .aep on
+             * disk is untouched - but the OPEN project becomes the collected copy.
+             * Image sequences are reported, not copied: telling a sequence's
+             * frames apart from unrelated files next to it is guesswork.
+             */
+            if (!args.folder) { throw new Error("collect requires folder, an absolute path"); }
+            var cRoot = new Folder(String(args.folder));
+            var cName = String(args.projectName || (p.file ? p.file.displayName : "collected.aep"));
+            if (!/\.aepx?$/i.test(cName)) { cName += ".aep"; }
+            var cProj = new File(cRoot.fsName + "/" + cName);
+            // Check before copying anything, so a refusal leaves nothing half-done.
+            if (cProj.exists && args.overwrite !== true) { throw new Error("Refusing to overwrite (pass overwrite:true): " + cProj.fsName); }
+            if (!cRoot.exists && !cRoot.create()) { throw new Error("Could not create " + cRoot.fsName); }
+            var cFoot = new Folder(cRoot.fsName + "/Footage");
+            if (!cFoot.exists && !cFoot.create()) { throw new Error("Could not create " + cFoot.fsName); }
+            var STILL = { png: 1, jpg: 1, jpeg: 1, tif: 1, tiff: 1, exr: 1, dpx: 1, psd: 1, tga: 1, bmp: 1, gif: 1 };
+            var copied = [], skipped = [], used = {};
+            for (var ci = 1; ci <= p.numItems; ci++) {
+                var cItem = p.item(ci);
+                if (!(cItem instanceof FootageItem) || !cItem.file) { continue; }   // solids, placeholders
+                var cSrc = cItem.file;
+                if (cItem.footageMissing || !cSrc.exists) { skipped.push({ itemId: cItem.id, name: cItem.name, reason: "missing on disk" }); continue; }
+                var cExt = cSrc.displayName.split(".").pop().toLowerCase();
+                if (STILL[cExt] && !cItem.mainSource.isStill) {
+                    skipped.push({ itemId: cItem.id, name: cItem.name, reason: "image sequence - copy its folder and use replaceFootage with sequence:true" });
+                    continue;
+                }
+                var cBase = cSrc.displayName;
+                if (used[cBase.toLowerCase()]) { cBase = cItem.id + "_" + cBase; }
+                used[cBase.toLowerCase()] = true;
+                var cDst = new File(cFoot.fsName + "/" + cBase);
+                if (cDst.fsName !== cSrc.fsName && !cSrc.copy(cDst)) {
+                    skipped.push({ itemId: cItem.id, name: cItem.name, reason: "copy failed: " + cSrc.error });
+                    continue;
+                }
+                cItem.replace(cDst);
+                copied.push({ itemId: cItem.id, name: cItem.name, to: cDst.fsName });
+            }
+            p.save(cProj);
+            return { folder: cRoot.fsName, project: cProj.fsName, collected: copied.length, copied: copied, skipped: skipped,
+                     note: "The open project is now the collected copy; the original .aep on disk is untouched." };
+        }
+
         if (cmd === "save") {
             if (!p.file && !args.path) { throw new Error("Untitled project - pass path to save it somewhere"); }
             if (args.path) {
@@ -633,6 +752,11 @@ var __mcp_mutateOps = {
                     throw new Error("Project path must end in .aep or .aepx, got: " + target);
                 }
                 var dest = new File(target);
+                // AE's own error for a missing folder is "File couldn't be opened for
+                // writing .../x.49417.36289656.aep" - make the folder instead.
+                if (dest.parent && !dest.parent.exists && !dest.parent.create()) {
+                    throw new Error("Could not create the folder to save into: " + dest.parent.fsName);
+                }
                 // Never silently overwrite someone's project file.
                 if (dest.exists && args.overwrite !== true) {
                     throw new Error("Refusing to overwrite existing file (pass overwrite:true): " + target);
