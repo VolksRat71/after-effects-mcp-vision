@@ -15,6 +15,7 @@
 const fs = require('fs');
 const nodePath = require('path');
 const { buildContactSheet } = require('./contact-sheet.js');
+const { readCompletePng } = require('./png-ready.js');
 
 /*
  * Absolute path to the ExtendScript entry point. $.fileName is not meaningful
@@ -677,7 +678,9 @@ function createToolRegistry(callHost) {
       longEdge: args.longEdge || 512,
       fileName: `cap${stamp}.png`,
     });
-    const b64 = fs.readFileSync(frame.path).toString('base64');
+    // Not readFileSync: AE writes the PNG asynchronously, and a large frame read
+    // early came back with a third of its rows missing.
+    const b64 = (await readCompletePng(frame.path)).toString('base64');
     try { fs.unlinkSync(frame.path); } catch (e) {}
     const { path, ...meta } = frame;
     return {
