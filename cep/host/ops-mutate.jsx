@@ -340,6 +340,14 @@ var __mcp_mutateOps = {
         if (cmd === "rename")    { layer.name = String(args.name); return __mcp_layerSummary(layer); }
         if (cmd === "select")    { layer.selected = (args.selected !== false); return __mcp_layerSummary(layer); }
         if (cmd === "setEnabled"){ layer.enabled = (args.enabled !== false); return __mcp_layerSummary(layer); }
+        if (cmd === "setAudioEnabled") {
+            // Every copy of the same footage carries its audio, so N copies render N-fold summed sound.
+            var hasAudio = false;
+            try { hasAudio = layer.hasAudio; } catch (e) {}
+            if (!hasAudio) { throw new Error("Layer " + layer.id + " has no audio to switch"); }
+            layer.audioEnabled = (args.enabled !== false);
+            return __mcp_layerSummary(layer);
+        }
         if (cmd === "setLocked") { layer.locked = (args.locked !== false); return __mcp_layerSummary(layer); }
         if (cmd === "reparent")  {
             layer.parent = (args.parentLayerId === null) ? null : __mcp_layerById(args.parentLayerId);
@@ -377,16 +385,6 @@ var __mcp_mutateOps = {
         var layer = __mcp_layerById(args.layerId);
         var parade = layer.property("ADBE Effect Parade");
         if (!parade) { throw new Error("Layer does not support effects"); }
-
-        // moveTo invalidates the moved object, so hand back a fresh reference.
-        function moveMask(mk, idx) {
-            var to = Number(idx);
-            if (isNaN(to) || to < 1 || to > parade.numProperties || to !== Math.floor(to)) {
-                throw new Error("index must be 1.." + parade.numProperties);
-            }
-            if (mk.propertyIndex !== to) { mk.moveTo(to); }
-            return parade.property(to);
-        }
 
         if (cmd === "list") {
             var list = [];
@@ -449,6 +447,17 @@ var __mcp_mutateOps = {
             return String(v);
         }
         // maskIndex, else maskName, else the most recently added mask.
+        // moveTo invalidates the moved object, so hand back a fresh reference. Declared
+        // before use: ExtendScript does not reliably hoist nested function declarations.
+        function moveMask(mk, idx) {
+            var to = Number(idx);
+            if (isNaN(to) || to < 1 || to > parade.numProperties || to !== Math.floor(to)) {
+                throw new Error("index must be 1.." + parade.numProperties);
+            }
+            if (mk.propertyIndex !== to) { mk.moveTo(to); }
+            return parade.property(to);
+        }
+
         function pickMask() {
             var picked = null;
             if (args.maskIndex) { picked = parade.property(Number(args.maskIndex)); }

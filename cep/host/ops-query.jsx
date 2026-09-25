@@ -26,6 +26,7 @@ function __mcp_layerSummary(l) {
     } catch (e) { s.type = "Layer"; }
     try { s.parentId = l.parent ? l.parent.id : null; } catch (e) { s.parentId = null; }
     try { s.hasVideo = l.hasVideo; } catch (e) {}
+    try { if (l.hasAudio) { s.hasAudio = true; s.audioEnabled = l.audioEnabled; } } catch (e) {}
     // Handoff notes set by ae_layers organise; omitted when empty to keep trees small.
     try { if (l.comment) { s.comment = l.comment; } } catch (e) {}
     return s;

@@ -213,7 +213,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: ['createText', 'createBoxText', 'createSolid', 'createShape', 'createNull', 'delete', 'duplicate', 'rename', 'select', 'setEnabled', 'setLocked', 'reparent', 'reorder', 'setCollapse', 'applyPreset', 'organise'] },
+        command: { type: 'string', enum: ['createText', 'createBoxText', 'createSolid', 'createShape', 'createNull', 'delete', 'duplicate', 'rename', 'select', 'setEnabled', 'setAudioEnabled', 'setLocked', 'reparent', 'reorder', 'setCollapse', 'applyPreset', 'organise'] },
         compId: { type: 'number' },
         layerId: { type: 'number' },
         name: { type: 'string' },
@@ -544,6 +544,9 @@ const TOOLS = [
       'ae_capture is for looking, not for output.\n\n' +
       'BLOCKING and potentially slow - a long comp can take minutes, and After Effects is ' +
       'unresponsive throughout. Render a short range first if you are unsure.\n\n' +
+      'AUDIO: every layer made from the same footage carries its audio, so a plate plus copies renders ' +
+      'the sound summed N times (and clipping). Switch the copies off with ae_layers setAudioEnabled ' +
+      '{enabled:false}; tree shows hasAudio/audioEnabled per layer.\n\n' +
       'Format is not directly settable in After Effects scripting, so it comes from an output ' +
       'module template. Run listTemplates to see what this machine has; "Lossless" and the H.264 ' +
       'presets are usually present. Any other queued items are disabled during the render and ' +
