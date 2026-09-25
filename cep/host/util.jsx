@@ -167,6 +167,24 @@ function __mcp_readValue(p, time) {
     }
 }
 
+/*
+ * The text AE shows for a value (AE 26.0+). For a popup parameter such as
+ * Stroke's Paint Style this is the menu label ("On Transparent") where .value
+ * is only an integer - an agent guessed that integer backwards and silently
+ * discarded the footage under every highlight. Returned only when it is not
+ * just the number again, so plain sliders stay quiet.
+ */
+function __mcp_valueLabel(p) {
+    try {
+        if (p.propertyValueType !== PropertyValueType.OneD) { return null; }
+        var vt = p.valueText;
+        if (vt === undefined || vt === null || vt === "") { return null; }
+        vt = String(vt);
+        if (!isNaN(parseFloat(vt)) && /^[\s\d.,+\-%]*[a-z%°]*\s*$/i.test(vt)) { return null; }
+        return vt;
+    } catch (e) { return null; }
+}
+
 /* Dropdown Menu Control is the ONE place AE exposes an enum option table.
    propertyParameters landed in 17.0.1; valueText in 26.0. */
 function __mcp_enumOptions(p) {

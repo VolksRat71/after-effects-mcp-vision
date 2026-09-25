@@ -26,6 +26,8 @@ function __mcp_layerSummary(l) {
     } catch (e) { s.type = "Layer"; }
     try { s.parentId = l.parent ? l.parent.id : null; } catch (e) { s.parentId = null; }
     try { s.hasVideo = l.hasVideo; } catch (e) {}
+    // Handoff notes set by ae_layers organise; omitted when empty to keep trees small.
+    try { if (l.comment) { s.comment = l.comment; } } catch (e) {}
     return s;
 }
 
@@ -85,6 +87,8 @@ function __mcp_walkProps(group, pathSoFar, depth, maxDepth, out, includeValues) 
 
         if (includeValues && __mcp_propTypeName(p) === "PROPERTY") {
             entry.value = __mcp_readValue(p);
+            var lbl = __mcp_valueLabel(p);
+            if (lbl !== null) { entry.label = lbl; }
         }
 
         out.push(entry);
@@ -178,6 +182,11 @@ var __mcp_queryOps = {
                     value: __mcp_readValue(p, evalTime),
                     valueType: __mcp_valueTypeName(p)
                 };
+                // valueText is the CURRENT value's text, so only label a read at the playhead.
+                if (!hasTime || Math.abs(evalTime - layer.containingComp.time) < 1e-6) {
+                    var lb = __mcp_valueLabel(p);
+                    if (lb !== null) { rec.label = lb; }
+                }
                 try { if (p.numKeys) { rec.numKeys = p.numKeys; } } catch (e) {}
                 try { if (p.expression) { rec.expression = p.expression; } } catch (e) {}
                 values.push(rec);
