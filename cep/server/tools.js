@@ -346,6 +346,9 @@ const TOOLS = [
       'the Mask Opacity keys inside its own time range, so split calls cannot leave each other stuck at 0.\n\n' +
       'FROM A FILE: pass keysPath (absolute) instead of keys - tracker output goes straight from disk, ' +
       'costing no tokens. keysPointer selects inside the file ("/add/0"); per-frame arrays use fps.\n\n' +
+      'TIME BASE: key times are COMP seconds by default. A tracker file indexes frames of the clip, so ' +
+      'on a layer whose startTime was shifted pass timeBase:"layer" (maps through startTime and ' +
+      'stretch) rather than zeroing startTime around the call. timeOffset adds seconds on top.\n\n' +
       'MODES: pass mode on add, or call setMode. Holes (the gap between an arm and a torso) ' +
       'need mode:"subtract" on their own mask - inverting a mask is not the same thing.',
     inputSchema: {
@@ -386,6 +389,8 @@ const TOOLS = [
           'output - inline vertices cost the agent tokens for every point.' },
         keysPointer: { type: 'string', description: 'setPathKeys: JSON Pointer into keysPath\'s file, e.g. "/add/0" for slot 0 of {add:[[...]]}.' },
         fps: { type: 'number', description: 'setPathKeys with per-frame data: frames per second (time = frame/fps). Defaults to the file\'s "fps".' },
+        timeBase: { type: 'string', enum: ['comp', 'layer'], description: 'setPathKeys: what key times (and per-frame file indexes) are measured in. comp (default) = comp seconds, which is what AE stores. layer = the layer\'s own clip time, mapped through its startTime and stretch - use it for a clip-wide tracker file on a layer that has been shifted.' },
+        timeOffset: { type: 'number', description: 'setPathKeys: seconds added to every key time, after timeBase.' },
         hold: { type: 'boolean', description: 'setPathKeys: make every key in this call a hold keyframe. Use for traced/tracked outlines.' },
         mode: { type: 'string', enum: ['add', 'subtract', 'intersect', 'lighten', 'darken', 'difference', 'none'],
           description: 'add/setMode: mask blend mode. Default for a new mask is add.' },

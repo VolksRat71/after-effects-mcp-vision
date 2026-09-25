@@ -386,6 +386,23 @@
             return { frames: got.join(","), rerunCleared: again.clearedPathKeys, afterDrop: shape.numKeys };
         });
 
+        record("setPathKeys timeBase:layer maps clip time through startTime and stretch", function () {
+            var id = call("layers", { compId: scratchCompId, command: "createSolid", color: [1,1,1], name: "shifted", width: 100, height: 100 }).id;
+            var L = __mcp_layerById(id);
+            L.startTime = 2; L.stretch = 200;
+            call("masks", { layerId: id, command: "add" });
+            var sq = [[10,10],[90,10],[90,90],[10,90]];
+            var r = call("masks", { layerId: id, command: "setPathKeys", timeBase: "layer", timeOffset: 0.5, hold: true,
+                                    keys: [{ time: 0, vertices: sq }, { time: 1, vertices: sq }] });
+            var shape = L.property("ADBE Mask Parade").property(1).property("ADBE Mask Shape");
+            // clip 0 -> 2 + 0*2 + 0.5 = 2.5; clip 1 -> 2 + 1*2 + 0.5 = 4.5
+            if (Math.abs(shape.keyTime(1) - 2.5) > 1e-6 || Math.abs(shape.keyTime(2) - 4.5) > 1e-6) {
+                throw new Error("keys at " + shape.keyTime(1) + ", " + shape.keyTime(2) + " - wanted 2.5, 4.5");
+            }
+            L.stretch = 100;
+            return { keyTimes: [shape.keyTime(1), shape.keyTime(2)], reported: r.compTimeRange };
+        });
+
         /*
          * Popups: an agent guessed Stroke's Paint Style integer backwards and
          * silently dropped the footage under every highlight.

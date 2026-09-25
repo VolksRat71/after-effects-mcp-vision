@@ -525,7 +525,28 @@ var __mcp_mutateOps = {
             var keys = args.keys;
             if (!keys || !keys.length) { throw new Error("setPathKeys needs a non-empty keys array: [{time, vertices}]"); }
             var started = new Date().getTime();
-            var sorted = keys.slice(0);
+            /*
+             * Key times are COMP seconds, because that is what AE's keyframe API
+             * takes. A tracker file indexes frames of the CLIP, so on a layer
+             * whose startTime was shifted (or stretched) those frames land in
+             * the wrong place. timeBase:"layer" maps layer time to comp time
+             * (startTime + t * stretch/100); timeOffset adds seconds either way.
+             */
+            var toLayer = (args.timeBase === "layer");
+            if (args.timeBase !== undefined && args.timeBase !== "comp" && !toLayer) {
+                throw new Error("timeBase must be \"comp\" (default) or \"layer\"");
+            }
+            var tOffset = Number(args.timeOffset || 0);
+            if (isNaN(tOffset)) { throw new Error("timeOffset must be a number of seconds"); }
+            var stretch = toLayer ? layer.stretch / 100 : 1, shift = (toLayer ? layer.startTime : 0) + tOffset;
+            var sorted = [];
+            for (var kk = 0; kk < keys.length; kk++) {
+                var src0 = keys[kk], kt0 = Number(src0.time);
+                if (src0.time === undefined || src0.time === null || isNaN(kt0)) {
+                    throw new Error("keys[" + kk + "] has no numeric time");
+                }
+                sorted.push({ time: shift + kt0 * stretch, vertices: src0.vertices, closed: src0.closed });
+            }
             sorted.sort(function (a, b) { return Number(a.time) - Number(b.time); });
 
             var pTimes = [], pShapes = [], oTimes = [], oVals = [];
@@ -661,6 +682,7 @@ var __mcp_mutateOps = {
             return { layerId: layer.id, maskIndex: km.propertyIndex, name: km.name,
                      pathKeys: pTimes.length, collapsedKeys: cTimes.length, opacityKeys: opacityKeys,
                      clearedPathKeys: clearedPathKeys, opacityNumKeys: opProp.numKeys,
+                     timeBase: toLayer ? "layer" : "comp", compTimeRange: [sorted[0].time, sorted[sorted.length - 1].time],
                      emptyFrames: empty, degenerateShapes: degenerate, hold: hold,
                      opacityRestoredAfterRange: restoredAfter,
                      numKeys: pathProp.numKeys, elapsedMs: new Date().getTime() - started };
