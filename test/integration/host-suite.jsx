@@ -470,6 +470,42 @@
             return { refused: true, hint: msg.slice(0, 60) };
         });
 
+        /*
+         * A batch that hit a render error used to leave its items queued; they
+         * then claimed the next batch's output paths and that job wrote nothing.
+         */
+        record("batch render: folders created, extension honoured, nothing left queued after a failure", function () {
+            var comp = call("project", { command: "createComp", name: "batchout", width: 16, height: 16, duration: 0.1, frameRate: 24 });
+            var rq = app.project.renderQueue, before = rq.numItems;
+            var dir = Folder.temp.fsName + "/mcp_batch_" + new Date().getTime();
+            var r = call("render", { command: "batch", jobs: [
+                { compId: comp.id, outputPath: dir + "/new/sub/a.mp4" },                        // folder made, H.264 by extension
+                { compId: comp.id, outputPath: dir + "/b.mp4", omTemplate: "Lossless" },         // template writes .mov
+                { compId: comp.id, outputPath: dir + "/c.xyz" } ] });                           // not a media extension
+            if (rq.numItems !== before) { throw new Error("queue grew from " + before + " to " + rq.numItems); }
+            var a = new File(dir + "/new/sub/a.mp4");
+            if (!a.exists || a.length === 0) { throw new Error("a.mp4 was not written into the new folder"); }
+            var byIndex = {};
+            for (var e = 0; e < r.errors.length; e++) { byIndex[r.errors[e].index] = r.errors[e].message; }
+            if (!byIndex[1] || byIndex[1].indexOf("writes .mov") < 0) { throw new Error("no extension-mismatch error: " + byIndex[1]); }
+            if (!byIndex[2]) { throw new Error("bad extension was not refused"); }
+            if (new File(dir + "/b.mov").exists) { throw new Error("a .mov was written for an .mp4 path"); }
+            a.remove();
+            return { rendered: r.rendered.length, errors: r.errors.length, queue: rq.numItems };
+        });
+
+        record("shape colour alpha becomes Opacity on create, and ae_set warns that AE ignores it", function () {
+            var sh = call("shapes", { compId: scratchCompId, kind: "rect", width: 40, height: 40, name: "alpha", fill: [0, 0, 0, 0.7] });
+            var L = __mcp_layerById(sh.id);
+            var fop = __mcp_propByPath(L, sh.paths.fillOpacity).value;
+            if (Math.abs(fop - 70) > 1e-3) { throw new Error("Fill Opacity is " + fop + ", wanted 70"); }
+            var w = call("set", { writes: [{ layerId: sh.id, path: sh.paths.fillColor, value: [1, 0, 0, 0.5] }] });
+            if (!w.warnings || w.warnings[0].code !== "alpha_ignored" || Math.abs(w.warnings[0].suggestedOpacity - 50) > 1e-3) {
+                throw new Error("no alpha_ignored warning: " + JSON.stringify(w).slice(0, 200));
+            }
+            return { fillOpacity: fop, warning: w.warnings[0].code };
+        });
+
         record("setEase applies temporal easing sized to the property", function () {
             call("keyframes", { layerId: textLayerId,
                 path: ["ADBE Transform Group", "ADBE Position"],

@@ -142,6 +142,8 @@ const TOOLS = [
       'Give a write a `time` to make it a keyframe instead of a static value.\n\n' +      'POPUP parameters (Stroke Paint Style, Glow Composite Original, ...) take their menu label as ' +
       'the value - "On Transparent" - rather than a guessed integer; a wrong label errors with the ' +
       'options. ae_query propertyValues shows value, label and options for a popup.\n\n' +
+      'A `warnings` array flags writes AE accepts but ignores - e.g. alpha on a shape fill or stroke colour, ' +
+      'which renders opaque; the warning names the Opacity property to set instead.\n\n' +
       'Partial success is normal: the response reports appliedCount plus a per-item errors array ' +
       'with codes (unknown_id, unknown_path, type_mismatch, not_a_property, invalid_expression). ' +
       'One bad path does not discard the rest of the batch. The whole batch is a single undo step.',
@@ -482,8 +484,8 @@ const TOOLS = [
         innerRadius: { type: 'number', description: 'star only.' },
         vertices: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'path only: [[x,y], ...].' },
         closed: { type: 'boolean', description: 'path only. Default true.' },
-        fill: { description: 'RGBA 0-1 array, or false for no fill. Defaults to white.' },
-        stroke: { type: 'array', items: { type: 'number' }, description: 'RGBA 0-1. Omit for no stroke.' },
+        fill: { description: 'RGBA 0-1 array, or false for no fill. Defaults to white. AE ignores a shape colour\'s alpha, so alpha below 1 is written to Fill Opacity instead.' },
+        stroke: { type: 'array', items: { type: 'number' }, description: 'RGBA 0-1. Omit for no stroke. Alpha below 1 goes to Stroke Opacity.' },
         strokeWidth: { type: 'number' },
         position: { type: 'array', items: { type: 'number' } },
         layerId: { type: 'number', description: 'Required by the operator commands.' },
@@ -542,6 +544,11 @@ const TOOLS = [
       'module template. Run listTemplates to see what this machine has; "Lossless" and the H.264 ' +
       'presets are usually present. Any other queued items are disabled during the render and ' +
       'restored afterwards, so this never renders somebody else\'s queue.\n\n' +
+      'OUTPUT: a missing output folder is created. With no omTemplate the template follows the ' +
+      'extension (.mp4 -> H.264, .mov -> Lossless, .tif -> TIFF sequence); a template that would write ' +
+      'a different extension is an error rather than a silently renamed file. A job that produces no ' +
+      'file is reported in errors. Rendering never changes the project: batch removes its queue items ' +
+      'and restores paused ones even when a render fails.\n\n' +
       'batch takes N jobs and renders them in ONE pass - ad delivery is N comps by M formats, and ' +
       'one blocking call per output does not scale. queueInAME hands off to Media Encoder for real ' +
       'bitrate control, but note AME CANNOT export alpha: for RGB+Alpha use command render with an ' +
@@ -552,7 +559,7 @@ const TOOLS = [
         command: { type: 'string', enum: ['render', 'batch', 'queueInAME', 'listTemplates'] },
         compId: { type: 'number' },
         outputPath: { type: 'string', description: 'Absolute path with a media extension.' },
-        omTemplate: { type: 'string', description: 'Output module template name. Default: an H.264 preset.' },
+        omTemplate: { type: 'string', description: 'Output module template name. Default: chosen from the outputPath extension.' },
         rsTemplate: { type: 'string', description: 'Render settings template, e.g. "Best Settings".' },
         startTime: { type: 'number' },
         endTime: { type: 'number' },

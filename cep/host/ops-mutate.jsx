@@ -82,6 +82,10 @@ var __mcp_mutateOps = {
         if (!writes.length) { throw new Error("set requires a non-empty writes array"); }
         var applied = [];
         var errors = [];
+        var warnings = [];
+        // Colours whose alpha AE ignores; the value that controls it lives next door.
+        var ALPHA_IGNORED = { "ADBE Vector Fill Color": "ADBE Vector Fill Opacity",
+                              "ADBE Vector Stroke Color": "ADBE Vector Stroke Opacity" };
 
         for (var i = 0; i < writes.length; i++) {
             var w = writes[i];
@@ -114,12 +118,21 @@ var __mcp_mutateOps = {
                     p.setValue(coerced);
                 }
                 applied.push({ index: i, layerId: w.layerId, path: w.path });
+                if (ALPHA_IGNORED.hasOwnProperty(p.matchName) && coerced.length > 3 && coerced[3] < 1) {
+                    var opPath = w.path.slice(0, w.path.length - 1).concat([ALPHA_IGNORED[p.matchName]]);
+                    warnings.push({ index: i, code: "alpha_ignored",
+                                    message: "AE ignores the alpha of " + p.matchName + " - it renders opaque. Set " +
+                                             ALPHA_IGNORED[p.matchName] + " (0-100) for transparency.",
+                                    opacityPath: opPath, suggestedOpacity: coerced[3] * 100 });
+                }
             } catch (e) {
                 var code = String(e).indexOf("No property") !== -1 ? "unknown_path" : "write_failed";
                 errors.push({ index: i, code: code, message: String(e), line: __mcp_line(e) });
             }
         }
-        return { appliedCount: applied.length, applied: applied, errors: errors };
+        var res = { appliedCount: applied.length, applied: applied, errors: errors };
+        if (warnings.length) { res.warnings = warnings; }
+        return res;
     },
 
     setExpression: function (args) {
