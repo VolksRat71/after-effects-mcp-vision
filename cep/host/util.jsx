@@ -180,13 +180,14 @@ function __mcp_valueLabel(p) {
         var vt = p.valueText;
         if (vt === undefined || vt === null || vt === "") { return null; }
         vt = String(vt);
-        if (!isNaN(parseFloat(vt)) && /^[\s\d.,+\-%]*[a-z%°]*\s*$/i.test(vt)) { return null; }
+        if (/^\s*[+\-]?[\d.]/.test(vt)) { return null; }   // sliders, angles ("0x+0.0 deg"), "50.0 px"
         return vt;
     } catch (e) { return null; }
 }
 
-/* Dropdown Menu Control is the ONE place AE exposes an enum option table.
-   propertyParameters landed in 17.0.1; valueText in 26.0. */
+/* A popup's options, 1-based as AE stores them. Dropdown Menu Control is the
+   one place AE exposes its own table (propertyParameters, 17.0.1+); built-in
+   effect popups come from the generated table in effect-enums.jsx. */
 function __mcp_enumOptions(p) {
     try {
         if (p.isDropdownEffect && p.propertyParameters) {
@@ -196,6 +197,11 @@ function __mcp_enumOptions(p) {
             return out;
         }
     } catch (e) {}
+    try {
+        if (typeof __mcp_effectEnums !== "undefined" && __mcp_effectEnums.hasOwnProperty(p.matchName)) {
+            return __mcp_effectEnums[p.matchName].slice(0);
+        }
+    } catch (e2) {}
     return null;
 }
 

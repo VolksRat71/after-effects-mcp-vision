@@ -187,6 +187,8 @@ var __mcp_queryOps = {
                     var lb = __mcp_valueLabel(p);
                     if (lb !== null) { rec.label = lb; }
                 }
+                var ropts = __mcp_enumOptions(p);
+                if (ropts) { rec.options = ropts; }
                 try { if (p.numKeys) { rec.numKeys = p.numKeys; } } catch (e) {}
                 try { if (p.expression) { rec.expression = p.expression; } } catch (e) {}
                 values.push(rec);

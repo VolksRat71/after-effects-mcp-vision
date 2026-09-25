@@ -77,6 +77,7 @@ var __mcp_mutating = {
     anchor: true, align: true, distribute: true, stack: true, pin: true, fit: true, stagger: true,
     layers: true, effects: true,
     capture: true, captureSequence: true, captureIsolated: true,
+    effectEnums: true,
     /*
      * Saving, collecting, rendering and opening a project must NOT run inside
      * an undo group. AE logs "Undo group mismatch, will attempt to fix" when

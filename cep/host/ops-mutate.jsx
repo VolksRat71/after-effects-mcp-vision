@@ -25,6 +25,15 @@ function __mcp_coerceForProperty(p, value) {
     }
     if (vt === PropertyValueType.OneD || vt === PropertyValueType.LAYER_INDEX ||
         vt === PropertyValueType.MASK_INDEX) {
+        // A popup takes its menu label too: "On Transparent" instead of a guessed 2.
+        if (typeof value === "string" && isNaN(Number(value))) {
+            var opts = __mcp_enumOptions(p);
+            if (!opts) { throw new Error("expected a number - this parameter has no known option labels"); }
+            for (var oi = 0; oi < opts.length; oi++) {
+                if (opts[oi].toLowerCase() === value.toLowerCase()) { return oi + 1; }
+            }
+            throw new Error("no option '" + value + "' - options are: " + opts.join(" | "));
+        }
         var num = Number(value);
         if (isNaN(num)) { throw new Error("expected a number"); }
         return num;

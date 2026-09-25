@@ -386,6 +386,26 @@
             return { frames: got.join(","), rerunCleared: again.clearedPathKeys, afterDrop: shape.numKeys };
         });
 
+        /*
+         * Popups: an agent guessed Stroke's Paint Style integer backwards and
+         * silently dropped the footage under every highlight.
+         */
+        record("popup params read as {value, label, options} and take a label on write", function () {
+            var id = call("layers", { compId: scratchCompId, command: "createSolid", color: [1,1,1], name: "popup", width: 100, height: 100 }).id;
+            call("effects", { layerId: id, command: "apply", matchName: "ADBE Stroke" });
+            var path = ["ADBE Effect Parade", "ADBE Stroke", "ADBE Stroke-0007"];
+            var w = call("set", { writes: [{ layerId: id, path: path, value: "on transparent" },
+                                           { layerId: id, path: path, value: "Sideways" }] });
+            if (w.appliedCount !== 1 || w.errors.length !== 1 || w.errors[0].message.indexOf("Reveal Original Image") === -1) {
+                throw new Error("label write or bad-label error wrong: " + w.errors.length + " errors");
+            }
+            var r = call("propertyValues", { layerId: id, paths: [path] }).values[0];
+            if (r.value !== 2 || r.label !== "On Transparent" || !r.options || r.options.length !== 3) {
+                throw new Error("read back value " + r.value + " label " + r.label);
+            }
+            return { value: r.value, label: r.label, options: r.options.length };
+        });
+
         record("project hygiene: rename an item, create folders, move items into them", function () {
             var comp = call("project", { command: "createComp", name: "hygiene", width: 64, height: 64, duration: 1, frameRate: 24 });
             var r = call("project", { command: "renameItem", itemId: comp.id, name: "hygiene renamed" });

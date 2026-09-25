@@ -14,6 +14,7 @@
  */
 
 #include "./json-polyfill.jsx"
+#include "./effect-enums.jsx"
 #include "./util.jsx"
 #include "./ops-query.jsx"
 #include "./ops-mutate.jsx"

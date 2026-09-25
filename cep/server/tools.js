@@ -95,7 +95,7 @@ const TOOLS = [
       'depth defaults to 2, which is transform plus effect group headers. Raise it to drill into ' +
       'ONE branch via `path`; a depth-6 walk of a shape layer can run to thousands of tokens.\n' +
       '- propertyValues: read specific properties by path, at `time` if given. Mask paths come back as ' +
-      'a summary: vertexCount, closed, bbox, collapsed.\n' +
+      'a summary: vertexCount, closed, bbox, collapsed. Popups add label and options.\n' +
       '- selection: what the user currently has selected.\n' +      '- describe: the live schema of a tool ({tool:"ae_masks"}), straight from this server. Use it when ' +
       'a command or argument you expect is missing from your tool list - clients can cache definitions ' +
       'from session start.\n' +
@@ -134,7 +134,9 @@ const TOOLS = [
       'Paths are matchName arrays from ae_query propertyKeys, e.g. ' +
       '["ADBE Transform Group","ADBE Position"]. Note 2D layers expose "ADBE Rotate Z", not ' +
       '"ADBE Rotation".\n\n' +
-      'Give a write a `time` to make it a keyframe instead of a static value.\n\n' +
+      'Give a write a `time` to make it a keyframe instead of a static value.\n\n' +      'POPUP parameters (Stroke Paint Style, Glow Composite Original, ...) take their menu label as ' +
+      'the value - "On Transparent" - rather than a guessed integer; a wrong label errors with the ' +
+      'options. ae_query propertyValues shows value, label and options for a popup.\n\n' +
       'Partial success is normal: the response reports appliedCount plus a per-item errors array ' +
       'with codes (unknown_id, unknown_path, type_mismatch, not_a_property, invalid_expression). ' +
       'One bad path does not discard the rest of the batch. The whole batch is a single undo step.',
@@ -684,12 +686,14 @@ const TOOLS = [
       properties: {
         command: {
           type: 'string',
-          enum: ['problems', 'reloadHost'],
+          enum: ['problems', 'reloadHost', 'effectEnums'],
           description:
             'Default problems. reloadHost re-reads the ExtendScript host from disk - CEP loads it ' +
             'once per extension start, so host edits are otherwise invisible until AE restarts.',
         },
         maxLayers: { type: 'number', description: 'Cap on layers scanned for expression errors. Default 400.' },
+        offset: { type: 'number', description: 'effectEnums (maintainers only, scratch project): first effect of the batch.' },
+        limit: { type: 'number', description: 'effectEnums: effects per batch. Default 25.' },
       },
     },
   },
@@ -706,7 +710,7 @@ function createToolRegistry(callHost) {
    */
   // masks: a batched roto write builds hundreds of Shapes and keys them in one
   // host call, which can outlast the default ceiling on a large mask.
-  const LONG_OPS = { render: 30 * 60 * 1000, captureSequence: 5 * 60 * 1000, masks: 3 * 60 * 1000 };
+  const LONG_OPS = { render: 30 * 60 * 1000, captureSequence: 5 * 60 * 1000, masks: 3 * 60 * 1000, effectEnums: 5 * 60 * 1000 };
 
   async function host(op, args) {
     const res = await callHost(op, args, LONG_OPS[op]);
@@ -833,6 +837,7 @@ function createToolRegistry(callHost) {
     },
     ae_capture: capture,
     ae_diagnostics: async (a) => {
+      if (a.command === 'effectEnums') return textContent(await host('effectEnums', a));
       if (a.command !== 'reloadHost') return textContent(await host('problems', a));
       // Report a reload only if the host's load stamp actually changed. The old
       // implementation answered "reloaded: true" while reloading nothing.
