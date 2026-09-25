@@ -506,6 +506,32 @@
             return { fillOpacity: fop, warning: w.warnings[0].code };
         });
 
+        record("masks: add takes an index and reorder moves a mask, so an add can sit above the holes", function () {
+            var id = call("layers", { compId: scratchCompId, command: "createSolid", color: [1,1,1], name: "order", width: 100, height: 100 }).id;
+            call("masks", { layerId: id, command: "add", name: "body", mode: "add" });
+            call("masks", { layerId: id, command: "add", name: "hole", mode: "subtract" });
+            var a = call("masks", { layerId: id, command: "add", name: "arm", mode: "add", index: 2 });
+            if (a.maskIndex !== 2) { throw new Error("indexed add landed at " + a.maskIndex); }
+            var r = call("masks", { layerId: id, command: "reorder", maskName: "hole", index: 3 });
+            if (r.order.join(",") !== "body,arm,hole") { throw new Error("order " + r.order.join(",")); }
+            var bad = expectFail("masks", { layerId: id, command: "reorder", maskName: "hole", index: 9 }, "op_failed");
+            return { order: r.order.join(","), from: r.from };
+        });
+
+        record("diagnostics finds an expression error deep inside a shape layer", function () {
+            var sh = call("shapes", { compId: scratchCompId, kind: "rect", width: 20, height: 20, name: "deepexpr" });
+            var op = sh.paths.fillColor.slice(0, sh.paths.fillColor.length - 1).concat(["ADBE Vector Fill Opacity"]);
+            try { call("setExpression", { writes: [{ layerId: sh.id, path: op, expression: "notDefinedAnywhere * 2" }] }); } catch (e) {}
+            var d = call("problems", {});
+            var found = false;
+            var all = d.expressionErrors.concat(d.disabledExpressions || []);
+            for (var i = 0; i < all.length; i++) { if (all[i].layerId === sh.id) { found = true; } }
+            // clear it so later cases see a healthy project
+            call("setExpression", { writes: [{ layerId: sh.id, path: op, expression: "" }] });
+            if (!found) { throw new Error("problems missed the fill-opacity expression error; scanned " + d.scanned.properties + " properties"); }
+            return { errors: d.expressionErrors.length, disabled: (d.disabledExpressions || []).length, properties: d.scanned.properties };
+        });
+
         record("setEase applies temporal easing sized to the property", function () {
             call("keyframes", { layerId: textLayerId,
                 path: ["ADBE Transform Group", "ADBE Position"],

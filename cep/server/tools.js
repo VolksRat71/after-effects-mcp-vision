@@ -357,11 +357,15 @@ const TOOLS = [
       'on a layer whose startTime was shifted pass timeBase:"layer" (maps through startTime and ' +
       'stretch) rather than zeroing startTime around the call. timeOffset adds seconds on top.\n\n' +
       'MODES: pass mode on add, or call setMode. Holes (the gap between an arm and a torso) ' +
-      'need mode:"subtract" on their own mask - inverting a mask is not the same thing.',
+      'need mode:"subtract" on their own mask - inverting a mask is not the same thing. ORDER matters: ' +
+      'masks composite top to bottom, so an add BELOW a subtract fills the hole back in. add appends at ' +
+      'the bottom unless given index; reorder moves an existing mask. After an indexed add, address ' +
+      'masks by maskName, since "the most recent" means the bottom one.',
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: ['add', 'setRect', 'setPath', 'setPathKeys', 'setMode', 'rename', 'setFeather', 'list', 'remove'] },
+        command: { type: 'string', enum: ['add', 'setRect', 'setPath', 'setPathKeys', 'setMode', 'rename', 'reorder', 'setFeather', 'list', 'remove'] },
+        index: { type: 'number', description: 'reorder, or add: the 1-based position (1 = top). Masks composite top to bottom.' },
         layerId: { type: 'number' },
         maskIndex: { type: 'number', description: 'Defaults to the most recently added mask.' },
         maskName: { type: 'string', description: 'setPathKeys/setMode/rename: address a mask by name instead of index.' },

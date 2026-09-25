@@ -112,29 +112,62 @@ var __mcp_diagnosticOps = {
             }
         } catch (e) { out.fonts.push({ state: "unavailable", message: String(e) }); }
 
-        // Expression errors live on properties, so this needs a bounded walk.
+        /*
+         * Expression errors live on properties, at ANY depth: a shape fill's
+         * Opacity is five groups down and a text animator deeper still, which a
+         * depth-3 walk never reached (AE flagged an error this reported as
+         * healthy). AE also switches an expression off when it errors, so an
+         * expression that is present but disabled is reported too. Bounded by a
+         * property budget, not depth.
+         */
+        out.disabledExpressions = [];
+        var budget = Number(args && args.maxProperties ? args.maxProperties : 200000), seen = 0;
+        var scanGroup = function (g, path, hit) {
+            var n = 0;
+            try { n = g.numProperties; } catch (e) { return; }
+            for (var k = 1; k <= n && seen < budget; k++) {
+                var pr = null;
+                try { pr = g.property(k); } catch (e2) { continue; }
+                if (!pr) { continue; }
+                seen++;
+                var seg = null;
+                try { seg = pr.matchName; } catch (e3) {}
+                var here = path.concat([seg]);
+                if (pr.propertyType === PropertyType.PROPERTY) {
+                    var expr = "";
+                    try { if (pr.canSetExpression) { expr = pr.expression; } } catch (e4) {}
+                    if (expr) {
+                        var err = "";
+                        try { err = pr.expressionError; } catch (e5) {}
+                        var enabled = true;
+                        try { enabled = pr.expressionEnabled; } catch (e6) {}
+                        if (err) { hit(here, err, expr, "error"); }
+                        else if (!enabled) { hit(here, null, expr, "disabled"); }
+                    }
+                } else {
+                    scanGroup(pr, here, hit);
+                }
+            }
+        };
         for (var c = 1; c <= p.numItems && out.scanned.layers < maxLayers; c++) {
             var comp = p.item(c);
             if (!(comp instanceof CompItem)) { continue; }
             for (var L = 1; L <= comp.numLayers && out.scanned.layers < maxLayers; L++) {
                 var layer = comp.layer(L);
                 out.scanned.layers++;
-                var props = [];
-                __mcp_walkProps(layer, [], 1, 3, props, false);
-                for (var q = 0; q < props.length; q++) {
-                    if (props[q].expressionError) {
-                        out.expressionErrors.push({
-                            compId: comp.id, compName: comp.name,
-                            layerId: layer.id, layerName: layer.name,
-                            path: props[q].path, error: props[q].expressionError
-                        });
-                    }
-                }
+                scanGroup(layer, [], function (path, err, expr, kind) {
+                    var rec = { compId: comp.id, compName: comp.name, layerId: layer.id, layerName: layer.name,
+                                path: path, expression: String(expr).slice(0, 200) };
+                    if (kind === "error") { rec.error = err; out.expressionErrors.push(rec); }
+                    else { out.disabledExpressions.push(rec); }
+                });
             }
         }
+        out.scanned.properties = seen;
+        out.scanned.truncated = (seen >= budget || out.scanned.layers >= maxLayers);
 
         out.healthy = (out.missingFootage.length === 0 &&
-                       out.expressionErrors.length === 0 &&
+                       out.expressionErrors.length === 0 && out.disabledExpressions.length === 0 &&
                        out.fonts.length === 0);
         return out;
     }

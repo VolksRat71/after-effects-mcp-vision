@@ -378,6 +378,16 @@ var __mcp_mutateOps = {
         var parade = layer.property("ADBE Effect Parade");
         if (!parade) { throw new Error("Layer does not support effects"); }
 
+        // moveTo invalidates the moved object, so hand back a fresh reference.
+        function moveMask(mk, idx) {
+            var to = Number(idx);
+            if (isNaN(to) || to < 1 || to > parade.numProperties || to !== Math.floor(to)) {
+                throw new Error("index must be 1.." + parade.numProperties);
+            }
+            if (mk.propertyIndex !== to) { mk.moveTo(to); }
+            return parade.property(to);
+        }
+
         if (cmd === "list") {
             var list = [];
             for (var j = 1; j <= parade.numProperties; j++) {
@@ -469,7 +479,23 @@ var __mcp_mutateOps = {
             if (args.feather !== undefined) {
                 m.property("ADBE Mask Feather").setValue([Number(args.feather), Number(args.feather)]);
             }
+            if (args.index !== undefined && args.index !== null) { m = moveMask(m, args.index); }
             return { layerId: layer.id, maskIndex: m.propertyIndex, name: m.name, mode: modeName(m.maskMode) };
+        }
+
+        /*
+         * Masks composite top to bottom, so ORDER is part of the result: an Add
+         * below a Subtract puts the subtracted area back. reorder moves one mask
+         * to a 1-based index; add takes the same index.
+         */
+        if (cmd === "reorder") {
+            var mv = pickMask();
+            if (args.index === undefined || args.index === null) { throw new Error("reorder needs index (1 = top)"); }
+            var from = mv.propertyIndex;
+            mv = moveMask(mv, args.index);
+            var order = [];
+            for (var oi = 1; oi <= parade.numProperties; oi++) { order.push(parade.property(oi).name); }
+            return { layerId: layer.id, name: mv.name, from: from, maskIndex: mv.propertyIndex, order: order };
         }
 
         if (cmd === "setRect") {
