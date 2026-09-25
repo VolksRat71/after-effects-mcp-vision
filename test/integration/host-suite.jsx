@@ -532,6 +532,30 @@
             return { errors: d.expressionErrors.length, disabled: (d.disabledExpressions || []).length, properties: d.scanned.properties };
         });
 
+        record("summaries and reads: root folder is null, groups are not properties, alpha mapping and text fields reported", function () {
+            var f = call("project", { command: "createFolder", name: "rootcheck" });
+            if (f.parentFolderId !== null) { throw new Error("root folder parentFolderId " + f.parentFolderId); }
+            call("project", { command: "deleteItem", itemId: f.folderId });
+
+            var sh = call("shapes", { compId: scratchCompId, kind: "rect", width: 20, height: 20, name: "leafpaths", fill: [0, 0, 0, 0.5] });
+            if (sh.paths.groupTransform || !sh.paths.groupPosition) { throw new Error("create still lists the transform group"); }
+            if (!sh.warnings || sh.warnings[0].code !== "alpha_mapped") { throw new Error("alpha mapping was silent"); }
+            var grpPath = sh.paths.groupPosition.slice(0, sh.paths.groupPosition.length - 1);
+            var pv = call("propertyValues", { layerId: sh.id, paths: [grpPath, sh.paths.groupPosition] });
+            if (pv.errors.length !== 1 || pv.errors[0].code !== "not_a_property" || pv.values.length !== 1) {
+                throw new Error("group read: " + pv.errors.length + " errors, " + pv.values.length + " values");
+            }
+
+            var tl = call("layers", { compId: scratchCompId, command: "createText", text: "fields" });
+            call("set", { writes: [{ layerId: tl.id, path: ["ADBE Text Properties", "ADBE Text Document"],
+                                     value: { justification: "center", tracking: 25, fillColor: [1, 0, 0] } }] });
+            var td = call("propertyValues", { layerId: tl.id, paths: [["ADBE Text Properties", "ADBE Text Document"]] }).values[0].value;
+            if (td.justification !== "center" || td.tracking !== 25 || !td.fillColor || td.fillColor[0] !== 1) {
+                throw new Error("text read " + JSON.stringify(td));
+            }
+            return { folderParent: f.parentFolderId, groupError: pv.errors[0].code, justification: td.justification };
+        });
+
         record("setEase applies temporal easing sized to the property", function () {
             call("keyframes", { layerId: textLayerId,
                 path: ["ADBE Transform Group", "ADBE Position"],

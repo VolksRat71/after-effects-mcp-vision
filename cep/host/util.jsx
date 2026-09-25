@@ -139,7 +139,25 @@ function __mcp_readValue(p, time) {
         var atTime = (time !== undefined && time !== null);
         if (vt === PropertyValueType.TEXT_DOCUMENT) {
             var td = atTime ? p.valueAtTime(time, false) : p.value;
-            return { _type: "TextDocument", text: td.text, fontSize: td.fontSize, font: td.font };
+            var tdo = { _type: "TextDocument", text: td.text, fontSize: td.fontSize, font: td.font };
+            // The same fields ae_set accepts, so a read can be checked against a write.
+            // Each is guarded: AE throws for some in some states (boxTextSize on point text,
+            // strokeColor with no stroke applied).
+            try { tdo.fillColor = td.applyFill ? [td.fillColor[0], td.fillColor[1], td.fillColor[2]] : null; } catch (e1) {}
+            try { if (td.applyStroke) { tdo.strokeColor = [td.strokeColor[0], td.strokeColor[1], td.strokeColor[2]]; tdo.strokeWidth = td.strokeWidth; } } catch (e2) {}
+            try {
+                var J = ParagraphJustification, jn = null;
+                if (td.justification === J.LEFT_JUSTIFY) { jn = "left"; }
+                else if (td.justification === J.CENTER_JUSTIFY) { jn = "center"; }
+                else if (td.justification === J.RIGHT_JUSTIFY) { jn = "right"; }
+                else { jn = String(td.justification); }
+                tdo.justification = jn;
+            } catch (e3) {}
+            try { tdo.tracking = td.tracking; } catch (e4) {}
+            try { tdo.leading = td.autoLeading ? "auto" : td.leading; } catch (e5) {}
+            try { tdo.boxText = td.boxText === true; if (td.boxText) { tdo.boxTextSize = [td.boxTextSize[0], td.boxTextSize[1]]; } } catch (e6) {}
+            try { tdo.allCaps = td.allCaps; } catch (e7) {}
+            return tdo;
         }
         if (vt === PropertyValueType.SHAPE) {
             // A summary, not the vertex list: a roto path can hold hundreds of points.

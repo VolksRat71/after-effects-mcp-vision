@@ -459,7 +459,7 @@ const TOOLS = [
       'is a real animatable property, so a bar that grows is a Size keyframe rather than a scale ' +
       'that stretches the artwork. Solids can only scale.\n\n' +
       'The response includes a `paths` map of matchName paths to every animatable property it ' +
-      'created - size, roundness, fill colour, stroke width, group transform - so you can drive ' +
+      'created - size, roundness, fill colour and opacity, stroke width, group position/scale/rotation/opacity - so you can drive ' +
       'them with ae_set or ae_animate without reconstructing the vector tree yourself.\n\n' +
       'addOperator adds the things that make a shape layer useful for motion graphics:\n' +
       '- trim: the draw-on. Animate End 0 to 100. Offsetting Start behind End gives a travelling dash.\n' +
@@ -723,6 +723,28 @@ const TOOLS = [
   },
 ];
 
+/*
+ * Tool schemas as they are on disk right now. Node loads this file once, so
+ * after a dev edit describe lagged until After Effects restarted, while the
+ * hot-reloaded host already accepted the new commands. Re-reading gives the
+ * current schema; source says which one was used. (A change to a Node-side
+ * handler still needs a restart - only the schema is re-read.)
+ */
+function liveTools() {
+  try {
+    const self = require.resolve('./tools.js');
+    const cached = require.cache[self];
+    delete require.cache[self];
+    try {
+      return { tools: require('./tools.js').TOOLS, source: 'disk' };
+    } finally {
+      if (cached) require.cache[self] = cached;
+    }
+  } catch (e) {
+    return { tools: TOOLS, source: 'memory' };
+  }
+}
+
 /**
  * @param {(op:string,args:object,timeoutMs?:number)=>Promise<object>} callHost
  */
@@ -802,10 +824,11 @@ function createToolRegistry(callHost) {
       // The live schema, from this server. A client that cached tool
       // definitions at session start can still find new commands and args.
       if (a.command === 'describe') {
-        if (!a.tool) return textContent({ tools: TOOLS.map((t) => t.name), bridge: bridgeInfo() });
-        const def = TOOLS.find((t) => t.name === a.tool);
-        if (!def) return errorContent(`No tool named ${a.tool}. Known: ${TOOLS.map((t) => t.name).join(', ')}`);
-        return textContent({ ...def, bridge: bridgeInfo() });
+        const { tools, source } = liveTools();
+        if (!a.tool) return textContent({ tools: tools.map((t) => t.name), schemaSource: source, bridge: bridgeInfo() });
+        const def = tools.find((t) => t.name === a.tool);
+        if (!def) return errorContent(`No tool named ${a.tool}. Known: ${tools.map((t) => t.name).join(', ')}`);
+        return textContent({ ...def, schemaSource: source, bridge: bridgeInfo() });
       }
       const out = await host(a.command, a);
       // Lets a client notice a stale tool list: compare this with what it expects.

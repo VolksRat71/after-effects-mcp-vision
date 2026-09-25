@@ -36,3 +36,10 @@ test('describe on an unknown tool is an error result naming the real ones', asyn
   assert.strictEqual(r.isError, true);
   assert.match(r.content[0].text, /ae_masks/);
 });
+
+test('describe reads the schema from disk, so a dev edit shows without a restart', async () => {
+  const { reg } = registry();
+  const out = body(await reg.callTool('ae_query', { command: 'describe', tool: 'ae_layers' }));
+  assert.strictEqual(out.schemaSource, 'disk');
+  assert.ok(out.inputSchema.properties.command.enum.includes('setAudioEnabled'));
+});

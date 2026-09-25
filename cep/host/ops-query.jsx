@@ -47,6 +47,15 @@ function __mcp_itemSummary(it) {
         s.type = (it.mainSource instanceof SolidSource) ? "Solid" : "Footage";
         try { s.footageMissing = it.footageMissing; } catch (e) {}
         try { s.file = it.file ? it.file.fsName : null; } catch (e) {}
+        // What a caller needs before building on footage: its size, timing and whether it has sound.
+        try { s.width = it.width; s.height = it.height; } catch (e) {}
+        try { s.hasVideo = it.hasVideo; s.hasAudio = it.hasAudio; } catch (e) {}
+        try {
+            if (it.mainSource && !it.mainSource.isStill) {
+                s.duration = it.duration; s.frameRate = it.frameRate;
+                s.frames = Math.round(it.duration * it.frameRate);
+            } else if (it.mainSource) { s.still = true; }
+        } catch (e) {}
     }
     return s;
 }
@@ -178,6 +187,11 @@ var __mcp_queryOps = {
         for (var i = 0; i < paths.length; i++) {
             try {
                 var p = __mcp_propByPath(layer, paths[i]);
+                if (__mcp_propTypeName(p) !== "PROPERTY") {
+                    errors.push({ path: paths[i], code: "not_a_property",
+                                  message: "Path resolves to a group (" + p.matchName + "), not a readable property - use propertyKeys with this path to list what is inside" });
+                    continue;
+                }
                 var rec = {
                     path: paths[i],
                     value: __mcp_readValue(p, evalTime),

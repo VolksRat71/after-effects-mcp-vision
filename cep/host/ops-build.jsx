@@ -249,13 +249,16 @@ var __mcp_buildOps = {
         }
 
         var idx = 2;
-        var fillIdx = null, strokeIdx = null;
+        var fillIdx = null, strokeIdx = null, shapeWarnings = [];
         if (args.fill !== false) {
             contents.addProperty("ADBE Vector Graphic - Fill");
             var fc = __mcp_colorArg(args.fill, [1, 1, 1, 1]);
             contents.property(idx).property("ADBE Vector Fill Color").setValue(fc);
             // AE ignores a shape colour's alpha; transparency is the separate Opacity.
-            if (fc[3] < 1) { contents.property(idx).property("ADBE Vector Fill Opacity").setValue(fc[3] * 100); }
+            if (fc[3] < 1) {
+                contents.property(idx).property("ADBE Vector Fill Opacity").setValue(fc[3] * 100);
+                shapeWarnings.push({ code: "alpha_mapped", message: "fill alpha " + fc[3] + " written to Fill Opacity " + (fc[3] * 100) + " - AE ignores a shape colour's alpha" });
+            }
             fillIdx = idx; idx++;
         }
         if (args.stroke) {
@@ -263,7 +266,10 @@ var __mcp_buildOps = {
             var st = contents.property(idx);
             var sc = __mcp_colorArg(args.stroke, [0, 0, 0, 1]);
             st.property("ADBE Vector Stroke Color").setValue(sc);
-            if (sc[3] < 1) { st.property("ADBE Vector Stroke Opacity").setValue(sc[3] * 100); }
+            if (sc[3] < 1) {
+                st.property("ADBE Vector Stroke Opacity").setValue(sc[3] * 100);
+                shapeWarnings.push({ code: "alpha_mapped", message: "stroke alpha " + sc[3] + " written to Stroke Opacity " + (sc[3] * 100) + " - AE ignores a shape colour's alpha" });
+            }
             st.property("ADBE Vector Stroke Width").setValue(Number(args.strokeWidth || 2));
             strokeIdx = idx; idx++;
         }
@@ -279,7 +285,11 @@ var __mcp_buildOps = {
          * ae_set; an index resolves whatever the group is called.
          */
         var base = ["ADBE Root Vectors Group", grp.propertyIndex, "ADBE Vectors Group"];
-        var paths = { groupTransform: ["ADBE Root Vectors Group", grp.propertyIndex, "ADBE Vector Transform Group"] };
+        // Leaf properties only: every entry here is something ae_set or ae_animate can write.
+        var gt = ["ADBE Root Vectors Group", grp.propertyIndex, "ADBE Vector Transform Group"];
+        var paths = { groupPosition: gt.concat(["ADBE Vector Position"]), groupAnchor: gt.concat(["ADBE Vector Anchor"]),
+                      groupScale: gt.concat(["ADBE Vector Scale"]), groupRotation: gt.concat(["ADBE Vector Rotation"]),
+                      groupOpacity: gt.concat(["ADBE Vector Group Opacity"]) };
         if (sizeMatch) { paths.size = base.concat([geomMatch, sizeMatch]); }
         if (kind === "rect") { paths.roundness = base.concat([geomMatch, "ADBE Vector Rect Roundness"]); }
         if (kind === "path") { paths.path = base.concat([geomMatch, "ADBE Vector Shape"]); }
@@ -295,6 +305,7 @@ var __mcp_buildOps = {
         var summary = __mcp_layerSummary(sh);
         summary.kind = kind;
         summary.paths = paths;
+        if (shapeWarnings.length) { summary.warnings = shapeWarnings; }
         return summary;
     },
 

@@ -816,7 +816,8 @@ var __mcp_mutateOps = {
             if (!(pf instanceof FolderItem)) { throw new Error("parentFolderId " + args.parentFolderId + " is not a folder"); }
             var nf = p.items.addFolder(String(args.name || "Folder"));
             if (pf !== p.rootFolder) { nf.parentFolder = pf; }
-            return { folderId: nf.id, name: nf.name, parentFolderId: nf.parentFolder.id };
+            // null for the root, as tree, import and createComp report it.
+            return { folderId: nf.id, name: nf.name, parentFolderId: (nf.parentFolder === p.rootFolder) ? null : nf.parentFolder.id };
         }
         if (cmd === "moveToFolder") {
             var tf2 = args.folderId ? __mcp_itemById(args.folderId) : p.rootFolder;
