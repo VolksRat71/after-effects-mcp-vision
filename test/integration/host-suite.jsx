@@ -399,8 +399,9 @@
             if (Math.abs(shape.keyTime(1) - 2.5) > 1e-6 || Math.abs(shape.keyTime(2) - 4.5) > 1e-6) {
                 throw new Error("keys at " + shape.keyTime(1) + ", " + shape.keyTime(2) + " - wanted 2.5, 4.5");
             }
-            L.stretch = 100;
-            return { keyTimes: [shape.keyTime(1), shape.keyTime(2)], reported: r.compTimeRange };
+            var times = [shape.keyTime(1), shape.keyTime(2)];
+            L.stretch = 100;   // keys move with the stretch, so read them first
+            return { keyTimes: times, reported: r.compTimeRange };
         });
 
         /*

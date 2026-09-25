@@ -185,6 +185,41 @@ function __mcp_valueLabel(p) {
     } catch (e) { return null; }
 }
 
+/*
+ * TextDocument.font takes a PostScript name ("CourierNewPSMT"); agents and
+ * people write the family ("Courier New") or "Family Style". app.fonts (AE
+ * 24+) maps between them. Resolves in that order, preferring a Regular style
+ * for a bare family, and fails with near matches rather than letting AE
+ * reject or silently substitute.
+ */
+function __mcp_resolveFont(name) {
+    var fonts = null;
+    try { fonts = app.fonts; } catch (e) {}
+    if (!fonts || !fonts.allFonts) { return name; }   // before AE 24: pass through
+    try {
+        var byPs = fonts.getFontsByPostScriptName(name);
+        if (byPs && byPs.length) { return name; }
+    } catch (e1) {}
+    var want = name.toLowerCase(), family = null, full = null, near = [];
+    var groups = fonts.allFonts;
+    for (var g = 0; g < groups.length; g++) {
+        var grp = groups[g];
+        for (var f = 0; f < grp.length; f++) {
+            var ft = grp[f], fam = String(ft.familyName), sty = String(ft.styleName);
+            if ((fam + " " + sty).toLowerCase() === want) { full = ft.postScriptName; }
+            if (fam.toLowerCase() === want) {
+                if (!family || /^(regular|roman|book|normal)$/i.test(sty)) { family = ft.postScriptName; }
+            }
+            if (near.length < 8 && fam.toLowerCase().indexOf(want.split(" ")[0]) !== -1 &&
+                ("|" + near.join("|") + "|").indexOf("|" + fam + "|") === -1) { near.push(fam); }
+        }
+    }
+    if (full) { return full; }
+    if (family) { return family; }
+    throw new Error("No installed font '" + name + "' (tried PostScript name, family, and 'Family Style')" +
+                    (near.length ? " - similar families: " + near.join(", ") : ""));
+}
+
 /* A popup's options, 1-based as AE stores them. Dropdown Menu Control is the
    one place AE exposes its own table (propertyParameters, 17.0.1+); built-in
    effect popups come from the generated table in effect-enums.jsx. */

@@ -224,8 +224,14 @@ var __mcp_buildOps = {
             sh.property("ADBE Transform Group").property("ADBE Position").setValue([Number(args.position[0]), Number(args.position[1])]);
         }
 
-        var base = ["ADBE Root Vectors Group", groupName, "ADBE Vectors Group"];
-        var paths = { groupTransform: ["ADBE Root Vectors Group", groupName, "ADBE Vector Transform Group"] };
+        /*
+         * Groups are addressed by INDEX in returned paths, not by display name.
+         * AE would not resolve a long group name it had just been given
+         * ("Panel Backing: ..."), so the paths this call handed back failed in
+         * ae_set; an index resolves whatever the group is called.
+         */
+        var base = ["ADBE Root Vectors Group", grp.propertyIndex, "ADBE Vectors Group"];
+        var paths = { groupTransform: ["ADBE Root Vectors Group", grp.propertyIndex, "ADBE Vector Transform Group"] };
         if (sizeMatch) { paths.size = base.concat([geomMatch, sizeMatch]); }
         if (kind === "rect") { paths.roundness = base.concat([geomMatch, "ADBE Vector Rect Roundness"]); }
         if (kind === "path") { paths.path = base.concat([geomMatch, "ADBE Vector Shape"]); }
@@ -318,10 +324,11 @@ var __mcp_buildOps = {
 
             // Hand back matchName paths so ae_set / ae_animate can drive it.
             var base = [];
-            if (scope === "layer") { base = ["ADBE Root Vectors Group", added.name]; }
+            // By index, not display name: see the note in shapes create.
+            if (scope === "layer") { base = ["ADBE Root Vectors Group", added.propertyIndex]; }
             else {
-                base = ["ADBE Root Vectors Group", root.property(args.groupIndex || 1).name,
-                        "ADBE Vectors Group", added.name];
+                base = ["ADBE Root Vectors Group", Number(args.groupIndex || 1),
+                        "ADBE Vectors Group", added.propertyIndex];
             }
             var paths = {};
             for (var q = 1; q <= added.numProperties; q++) {
@@ -374,8 +381,8 @@ var __mcp_buildOps = {
             var dpaths = {};
             for (var q = 1; q <= dashes.numProperties; q++) {
                 dpaths[dashes.property(q).name] = ["ADBE Root Vectors Group",
-                    root.property(Number(args.groupIndex || 1)).name, "ADBE Vectors Group",
-                    stroke.name, "ADBE Vector Stroke Dashes", dashes.property(q).matchName];
+                    Number(args.groupIndex || 1), "ADBE Vectors Group",
+                    stroke.propertyIndex, "ADBE Vector Stroke Dashes", dashes.property(q).matchName];
             }
             return { layerId: layer.id, elements: dashes.numProperties, paths: dpaths };
         }

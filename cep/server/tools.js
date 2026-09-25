@@ -80,6 +80,11 @@ function errorContent(message) {
   return { content: [{ type: 'text', text: message }], isError: true };
 }
 
+// A property path segment: a matchName, a display name, or a 1-based index.
+// Indexes are what ae_shapes returns for shape groups, since AE does not
+// always resolve a long group name it was just given.
+const PATH_SEGMENT = { type: ['string', 'number'] };
+
 const TOOLS = [
   {
     name: 'ae_query',
@@ -115,8 +120,8 @@ const TOOLS = [
         name: { type: 'string', description: 'find: case-insensitive substring.' },
         type: { type: 'string', description: 'find: e.g. TextLayer, ShapeLayer, AVLayer, Composition, Footage.' },
         scope: { type: 'string', enum: ['layers', 'items'], description: 'find scope. Default layers.' },
-        path: { type: 'array', items: { type: 'string' }, description: 'propertyKeys: matchName path to start from.' },
-        paths: { type: 'array', items: { type: 'array', items: { type: 'string' } }, description: 'propertyValues: matchName paths to read.' },
+        path: { type: 'array', items: PATH_SEGMENT, description: 'propertyKeys: matchName path to start from.' },
+        paths: { type: 'array', items: { type: 'array', items: PATH_SEGMENT }, description: 'propertyValues: matchName paths to read.' },
         depth: { type: 'number', description: 'propertyKeys depth, 1-8. Default 2. Start shallow.' },
         includeValues: { type: 'boolean', description: 'propertyKeys: include current values. Roughly doubles output size.' },
         time: { type: 'number', description: 'bounds/propertyValues: evaluate at this time (comp seconds). Defaults to the playhead; propertyValues reports the time it used.' },
@@ -151,8 +156,8 @@ const TOOLS = [
             type: 'object',
             properties: {
               layerId: { type: 'number' },
-              path: { type: 'array', items: { type: 'string' } },
-              value: { description: 'Number for 1D, array for 2D/3D/colour - colour channels are 0-1, NOT 0-255. For a text document: a string, or {text,fontSize,font,justification,fillColor,tracking,leading}. Point text anchors at the baseline LEFT, so centre it with justification:"center" rather than by nudging position.' },
+              path: { type: 'array', items: PATH_SEGMENT },
+              value: { description: 'Number for 1D, array for 2D/3D/colour - colour channels are 0-1, NOT 0-255. For a text document: a string, or {text,fontSize,font,justification,fillColor,tracking,leading}; font takes a PostScript name, a family ("Courier New") or "Family Style". Point text anchors at the baseline LEFT, so centre it with justification:"center" rather than by nudging position.' },
               expression: { type: 'string' },
               time: { type: 'number', description: 'Present = write a keyframe at this time.' },
             },
@@ -176,7 +181,7 @@ const TOOLS = [
       type: 'object',
       properties: {
         layerId: { type: 'number' },
-        path: { type: 'array', items: { type: 'string' } },
+        path: { type: 'array', items: PATH_SEGMENT },
         add: { type: 'array', items: { type: 'object', properties: { time: { type: 'number' }, value: {}, hold: { type: 'boolean', description: 'Freeze this value until the next key - for cuts and stepped motion.' } }, required: ['time', 'value'] } },
         remove: { type: 'array', items: { type: 'number' }, description: '1-based key indices to delete.' },
         ease: {
@@ -434,7 +439,7 @@ const TOOLS = [
         protectedRegion: { type: 'boolean', description: 'addMarker: Responsive Design - Time. A protected region plays at original speed when an editor retimes the template downstream.' },
         enabled: { type: 'boolean' },
         enableForComp: { type: 'boolean', description: 'setMotionBlur: also switch it on for the comp. Default true - a layer\'s motion blur does nothing without it.' },
-        path: { type: 'array', items: { type: 'string' }, description: 'separateDimensions: defaults to Position.' },
+        path: { type: 'array', items: PATH_SEGMENT, description: 'separateDimensions: defaults to Position.' },
       },
       required: ['command'],
     },
@@ -672,7 +677,7 @@ const TOOLS = [
         command: { type: 'string', enum: ['expose', 'listExposed', 'exportMogrt'] },
         compId: { type: 'number' },
         layerId: { type: 'number' },
-        path: { type: 'array', items: { type: 'string' }, description: 'expose: matchName path to the property.' },
+        path: { type: 'array', items: PATH_SEGMENT, description: 'expose: matchName path to the property.' },
         name: { type: 'string', description: 'expose: display name shown to the editor. Default names are useless - set this.' },
         overwrite: { type: 'boolean' },
       },

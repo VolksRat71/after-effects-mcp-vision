@@ -45,7 +45,7 @@ function __mcp_coerceForProperty(p, value) {
         if (value && typeof value === "object") {
             if (value.text !== undefined) { td.text = String(value.text); }
             if (value.fontSize !== undefined) { td.fontSize = Number(value.fontSize); }
-            if (value.font !== undefined) { td.font = String(value.font); }
+            if (value.font !== undefined) { td.font = __mcp_resolveFont(String(value.font)); }
             if (value.fillColor !== undefined) { td.fillColor = value.fillColor; }
             if (value.tracking !== undefined) { td.tracking = Number(value.tracking); }
             if (value.leading !== undefined) { td.leading = Number(value.leading); }
