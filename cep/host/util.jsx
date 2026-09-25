@@ -170,8 +170,8 @@ function __mcp_readValue(p, time) {
 /*
  * The text AE shows for a value (AE 26.0+). For a popup parameter such as
  * Stroke's Paint Style this is the menu label ("On Transparent") where .value
- * is only an integer - an agent guessed that integer backwards and silently
- * discarded the footage under every highlight. Returned only when it is not
+ * is only an integer - a guessed integer can silently pick the wrong mode
+ * (dropping the layer's footage, for Paint Style). Returned only when it is not
  * just the number again, so plain sliders stay quiet.
  */
 function __mcp_valueLabel(p) {

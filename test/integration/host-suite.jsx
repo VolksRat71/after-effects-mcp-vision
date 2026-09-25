@@ -405,8 +405,8 @@
         });
 
         /*
-         * Popups: an agent guessed Stroke's Paint Style integer backwards and
-         * silently dropped the footage under every highlight.
+         * Effect popup parameters: a guessed integer can silently pick the wrong
+         * mode, so reads carry the label and writes accept it.
          */
         record("popup params read as {value, label, options} and take a label on write", function () {
             var id = call("layers", { compId: scratchCompId, command: "createSolid", color: [1,1,1], name: "popup", width: 100, height: 100 }).id;

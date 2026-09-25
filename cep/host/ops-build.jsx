@@ -227,7 +227,7 @@ var __mcp_buildOps = {
         /*
          * Groups are addressed by INDEX in returned paths, not by display name.
          * AE would not resolve a long group name it had just been given
-         * ("Panel Backing: ..."), so the paths this call handed back failed in
+         * (a name with a colon and spaces), so the paths this call handed back failed in
          * ae_set; an index resolves whatever the group is called.
          */
         var base = ["ADBE Root Vectors Group", grp.propertyIndex, "ADBE Vectors Group"];
