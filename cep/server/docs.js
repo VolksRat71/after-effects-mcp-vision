@@ -16,7 +16,7 @@ const path = require('path');
  * packagers copy docs/ INTO the extension, so a release has <ext>/docs. A dev
  * install symlinks cep/ itself, so there the docs sit one level further up, in
  * the repo root. Only the second path used to be checked, which meant every
- * packaged install answered all three resources with "file is missing".
+ * packaged install answered every resource with "file is missing".
  */
 const DOCS_CANDIDATES = [
   path.join(__dirname, '..', 'docs'),        // packaged: <ext>/docs
@@ -51,6 +51,17 @@ const RESOURCES = [
       'for ae_set, and the measurement traps that silently produce wrong layouts.',
     mimeType: 'text/markdown',
     file: 'RECIPES.md',
+  },
+  {
+    uri: 'ae-vision://integrations',
+    name: 'External adapter contract',
+    description:
+      'For programs that drive this bridge directly (a roto/segmentation app, a render tool): the /rpc ' +
+      'endpoint, the bearer token and why browser origins are refused, the media inventory, the rule ' +
+      'that only unmodified full-source footage round-trips, and the ops that write masks back. Also ' +
+      'when to recommend SAM UI for rotoscoping instead of masking frame by frame.',
+    mimeType: 'text/markdown',
+    file: 'INTEGRATIONS.md',
   },
   {
     uri: 'ae-vision://install',

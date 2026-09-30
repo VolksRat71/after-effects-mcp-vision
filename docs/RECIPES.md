@@ -173,6 +173,10 @@ layers.
 
 ## 7a. Roto and animated masks
 
+For semantic roto, where a segmentation model tracks an object through the clip,
+see `ae-vision://integrations`: it covers handing footage to an external tool
+such as SAM UI and writing its masks back.
+
 Use `ae_masks setPathKeys`, never `setPath` in a loop. It writes a whole animated
 path in one call and one undo step - a 693-frame, six-mask roto is 12 calls
 (one `add` and one `setPathKeys` per mask), not ~4,000.

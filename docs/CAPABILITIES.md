@@ -135,6 +135,11 @@ re-layout call. That is the multi-format ad case working.
 **Stagger is idempotent.** Base start times are recorded in the layer comment, so running it
 twice re-derives rather than compounding — the classic automation failure, tested directly.
 
+**External tools can read the footage.** `ae_query media` lists every file-backed moving
+clip with its path, size, timing and interpretation overrides, so a segmentation app can
+open the source and write masks back (`ae-vision://integrations`). This is not a probe row
+yet; the integration suite covers it.
+
 **Four things remain, and two of them are permanent:**
 
 - **Shape gradient colours** (`D5`). `ADBE Vector Grad Colors` reports `propertyValueType = 6412`
