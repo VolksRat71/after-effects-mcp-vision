@@ -17,9 +17,12 @@ an adapter can use, and both need the same bearer token.
 | `POST /mcp` | JSON-RPC 2.0, e.g. `tools/call` | The MCP tools, exactly as an agent sees them. Stateless: no `initialize` is needed first. |
 
 Most `ae_query` commands are host ops of the same name (`media`, `sessionInfo`,
-`tree`). Other tools map to one op with a `command` argument: `ae_project` is op
-`project`, `ae_masks` is op `masks`. `ae_query {command: "describe"}` returns
-any tool's live schema.
+`tree`). Other tools usually map to one op with a `command` argument:
+`ae_masks` is op `masks`, and `ae_project` is op `project` except for `new`,
+`open` and `close`, which are op `projectFile`. Some tools route to more than one
+op (`ae_set`, `ae_layout`, `ae_text`), so when unsure call the tool over `/mcp`,
+or list the host ops with `/rpc {"op": "listOps"}`. `ae_query {command:
+"describe"}` returns any tool's live schema.
 
 **Use `/mcp` for anything the tool layer adds.** `ae_masks setPathKeys` with
 `keysPath` is one: the Node side reads the keys file off disk, and the host op
