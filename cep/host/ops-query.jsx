@@ -61,6 +61,139 @@ function __mcp_itemSummary(it) {
 }
 
 /*
+ * Media inventory, for external adapters (SAM UI's roto handoff is the first).
+ *
+ * Every field here was read against AE 26.0x67 on a FileSource, a missing
+ * FileSource, a PlaceholderSource and a SolidSource, and none of them threw -
+ * but each read is still guarded, because a throw here would cost the caller
+ * the whole list rather than one field.
+ *
+ * Verified behaviour this relies on:
+ *  - A file deleted AFTER import keeps footageMissing === false until the
+ *    project is reopened; only file.exists notices. So `missing` checks both.
+ *  - On reopen, a missing file keeps its FileSource, its path, its id and its
+ *    last-known size and timing, and mainSource.missingFootagePath carries the
+ *    path. That is why a missing item stays in the list instead of dropping.
+ *  - alphaMode reads STRAIGHT on footage with no alpha at all, so it is only
+ *    meaningful next to hasAlpha.
+ *  - conformFrameRate changes frameRate and duration but not the frame count.
+ *
+ * Source type is decided with explicit branches: a one-line chained ternary
+ * over instanceof returned "PlaceholderSource" for every source type.
+ */
+function __mcp_enumName(value, table) {
+    for (var k in table) {
+        if (table.hasOwnProperty(k)) {
+            try { if (table[k] === value) { return k; } } catch (e) {}
+        }
+    }
+    return value;
+}
+
+function __mcp_enumTable(ctor, names) {
+    var t = {};
+    for (var i = 0; i < names.length; i++) {
+        try { if (ctor[names[i]] !== undefined) { t[names[i]] = ctor[names[i]]; } } catch (e) {}
+    }
+    return t;
+}
+
+// File extensions AE imports as stills. A non-still FileSource with one of
+// these is an image sequence, whose `path` is only the first frame.
+var __mcp_stillExt = /\.(png|jpe?g|tiff?|tga|exr|dpx|cin|bmp|psd|gif|hdr|sgi|rla|rpf|iff|pxr|dng|cr2|nef|arw|heic|webp)$/i;
+
+function __mcp_mediaRecord(it) {
+    var ms = it.mainSource;
+    var kind = "other";
+    if (ms instanceof SolidSource) { kind = "solid"; }
+    else if (ms instanceof PlaceholderSource) { kind = "placeholder"; }
+    else if (ms instanceof FileSource) { kind = "file"; }
+
+    var r = { id: it.id, name: it.name, kind: kind };
+    try { r.parentFolderId = (it.parentFolder && it.parentFolder !== app.project.rootFolder) ? it.parentFolder.id : null; } catch (e) {}
+
+    var path = null, exists = null;
+    try { if (it.file) { path = it.file.fsName; exists = it.file.exists; } } catch (e) {}
+    if (!path) { try { if (ms.missingFootagePath) { path = String(ms.missingFootagePath); exists = false; } } catch (e) {} }
+    r.path = path;
+
+    var footageMissing = false;
+    try { footageMissing = it.footageMissing === true; } catch (e) {}
+    r.missing = (kind === "file") && (footageMissing || exists === false);
+
+    var still = false;
+    try { still = ms.isStill === true; } catch (e) {}
+    try { r.hasVideo = it.hasVideo; } catch (e) {}
+    try { r.hasAudio = it.hasAudio; } catch (e) {}
+    try { r.width = it.width; r.height = it.height; } catch (e) {}
+    try { r.pixelAspect = it.pixelAspect; } catch (e) {}
+    if (!still) {
+        try {
+            r.duration = it.duration;
+            r.frameRate = it.frameRate;
+            r.frames = Math.round(it.duration * it.frameRate);
+        } catch (e) {}
+    }
+    r.still = still;
+    if (kind === "file" && !still && path && __mcp_stillExt.test(path)) { r.imageSequence = true; }
+
+    // Interpretation, as the Interpret Footage dialog would show it.
+    var interp = {};
+    try { interp.nativeFrameRate = ms.nativeFrameRate; } catch (e) {}
+    try { interp.conformFrameRate = ms.conformFrameRate; } catch (e) {}
+    try { interp.displayFrameRate = ms.displayFrameRate; } catch (e) {}
+    try { interp.fieldSeparation = __mcp_enumName(ms.fieldSeparationType,
+            __mcp_enumTable(FieldSeparationType, ["OFF", "UPPER_FIELD_FIRST", "LOWER_FIELD_FIRST"])); } catch (e) {}
+    try { interp.highQualityFieldSeparation = ms.highQualityFieldSeparation; } catch (e) {}
+    try { interp.removePulldown = __mcp_enumName(ms.removePulldown,
+            __mcp_enumTable(PulldownPhase, ["OFF", "WSSWW", "SSWWW", "SWWWS", "WWWSS", "WWSSW",
+                                            "WSSWW_24P_ADVANCE", "SSWWW_24P_ADVANCE", "SWWWS_24P_ADVANCE",
+                                            "WWWSS_24P_ADVANCE", "WWSSW_24P_ADVANCE"])); } catch (e) {}
+    try { interp.loop = ms.loop; } catch (e) {}
+    try { interp.hasAlpha = ms.hasAlpha; } catch (e) {}
+    // Null without an alpha channel: AE reads STRAIGHT there, which means nothing.
+    interp.alphaMode = null;
+    if (interp.hasAlpha === true) {
+        try { interp.alphaMode = __mcp_enumName(ms.alphaMode,
+                __mcp_enumTable(AlphaMode, ["IGNORE", "STRAIGHT", "PREMULTIPLIED"])); } catch (e) {}
+        try { interp.invertAlpha = ms.invertAlpha; } catch (e) {}
+    }
+    r.interpretation = interp;
+
+    try { r.useProxy = it.useProxy === true; } catch (e) {}
+    try {
+        // proxySource outlives useProxy = false, so report the path whenever one is set.
+        if (it.proxySource && it.proxySource.file) { r.proxyPath = it.proxySource.file.fsName; }
+    } catch (e) {}
+
+    /*
+     * Everything that makes AE's frame N differ from the file's frame N, or
+     * that makes what AE shows differ from what an adapter decodes. Empty means
+     * the item is interpreted natively.
+     */
+    var o = [];
+    if (interp.conformFrameRate && interp.nativeFrameRate &&
+        Math.abs(interp.conformFrameRate - interp.nativeFrameRate) > 1e-6) { o.push("conformFrameRate"); }
+    if (interp.fieldSeparation !== undefined && interp.fieldSeparation !== "OFF") { o.push("fieldSeparation"); }
+    if (interp.removePulldown !== undefined && interp.removePulldown !== "OFF") { o.push("removePulldown"); }
+    if (interp.loop !== undefined && interp.loop !== 1) { o.push("loop"); }
+    if (r.useProxy) { o.push("useProxy"); }
+    r.interpretationOverrides = o;
+
+    // Eligibility for an external segmenter: a moving picture in a real file.
+    // A missing file stays eligible - the adapter should say "reconnect".
+    var reason = null;
+    if (kind === "solid") { reason = "solid"; }
+    else if (kind === "placeholder") { reason = "placeholder"; }
+    else if (kind !== "file" || !path) { reason = "noFile"; }
+    else if (still) { reason = "still"; }
+    else if (r.hasVideo === false) { reason = "audioOnly"; }
+    r.eligible = (reason === null);
+    if (reason) { r.reason = reason; }
+    return r;
+}
+
+/*
  * Recursive property walk. Depth is capped hard because an unbounded walk of a
  * shape layer or a heavily-effected layer produces thousands of tokens - the
  * same trap Rive's get_artboard_hierarchy warns about.
@@ -212,6 +345,43 @@ var __mcp_queryOps = {
             }
         }
         return { layerId: layer.id, time: evalTime, values: values, errors: errors };
+    },
+
+    /*
+     * Footage an external tool can open: file-backed, moving, with video.
+     * Read-only. includeIneligible adds every other footage item (solids,
+     * stills, placeholders, audio) under `ineligible`, each with its reason.
+     */
+    media: function (args) {
+        var p = app.project;
+        var project = { path: null, name: null, dirty: false, numItems: p.numItems };
+        try { if (p.file) { project.path = p.file.fsName; project.name = p.file.name; } } catch (e) {}
+        try { project.dirty = p.dirty; } catch (e) {}
+
+        var items = [], ineligible = [], footage = 0, missing = 0;
+        for (var i = 1; i <= p.numItems; i++) {
+            var it = p.item(i);
+            if (!(it instanceof FootageItem)) { continue; }
+            footage++;
+            var r = __mcp_mediaRecord(it);
+            if (r.eligible) {
+                // List membership says eligible; these three are constant here.
+                delete r.eligible; delete r.still; delete r.hasVideo;
+                if (r.missing) { missing++; }
+                items.push(r);
+            } else if (args.includeIneligible === true) {
+                // Compact: nobody segments a solid, so its interpretation is noise.
+                ineligible.push({ id: r.id, name: r.name, kind: r.kind, reason: r.reason,
+                                  parentFolderId: r.parentFolderId, path: r.path,
+                                  width: r.width, height: r.height,
+                                  hasVideo: r.hasVideo, hasAudio: r.hasAudio, still: r.still });
+            }
+        }
+        var out = { project: project, items: items,
+                    counts: { footage: footage, eligible: items.length, missing: missing,
+                              ineligible: footage - items.length } };
+        if (args.includeIneligible === true) { out.ineligible = ineligible; }
+        return out;
     },
 
     selection: function () {

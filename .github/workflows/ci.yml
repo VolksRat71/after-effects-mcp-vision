@@ -58,4 +58,4 @@ jobs:
     steps:
       - name: Integration tests require a local After Effects
         run: |
-          echo "::notice title=Integration tests not run::The 31-case ExtendScript suite needs a live After Effects and cannot run on a hosted runner. Run 'npm run test:integration' locally before tagging a release."
+          echo "::notice title=Integration tests not run::The 78-case ExtendScript suite needs a live After Effects and cannot run on a hosted runner. Run 'npm run test:integration' locally before tagging a release."

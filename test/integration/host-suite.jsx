@@ -494,6 +494,138 @@
             return { rendered: r.rendered.length, errors: r.errors.length, queue: rq.numItems };
         });
 
+        /*
+         * media: the footage inventory external adapters read. The clip is
+         * rendered here by AE itself, so the suite needs no fixture media and
+         * no ffmpeg; everything written to Folder.temp is removed again.
+         */
+        var mediaClip = null, mediaItemId = null;
+        function mediaFind(res, list, id) {
+            var arr = res[list] || [];
+            for (var i = 0; i < arr.length; i++) { if (arr[i].id === id) { return arr[i]; } }
+            return null;
+        }
+
+        record("media lists a rendered clip with its path, size, timing and interpretation", function () {
+            var comp = call("project", { command: "createComp", name: "mediasrc", width: 64, height: 36, duration: 0.5, frameRate: 24 });
+            __mcp_compById(comp.id).layers.addSolid([0.9, 0.2, 0.1], "m", 64, 36, 1);
+            mediaClip = new File(Folder.temp.fsName + "/mcp_media_" + new Date().getTime() + ".mp4");
+            var rr = call("render", { command: "batch", jobs: [{ compId: comp.id, outputPath: mediaClip.fsName }] });
+            if (!mediaClip.exists || mediaClip.length === 0) { throw new Error("clip was not rendered: " + JSON.stringify(rr.errors)); }
+            mediaItemId = app.project.importFile(new ImportOptions(mediaClip)).id;
+
+            var res = call("media", {});
+            var m = mediaFind(res, "items", mediaItemId);
+            if (!m) { throw new Error("rendered clip not listed as eligible"); }
+            if (m.path !== mediaClip.fsName) { throw new Error("path " + m.path); }
+            if (m.width !== 64 || m.height !== 36 || m.pixelAspect !== 1) { throw new Error("size " + m.width + "x" + m.height + " par " + m.pixelAspect); }
+            if (Math.abs(m.frameRate - 24) > 1e-3 || m.frames !== 12) { throw new Error("timing " + m.frameRate + " fps, " + m.frames + " frames"); }
+            if (m.missing !== false || m.useProxy !== false || m.interpretationOverrides.length !== 0) { throw new Error("state " + JSON.stringify(m)); }
+            if (m.interpretation.conformFrameRate !== 0 || m.interpretation.fieldSeparation !== "OFF" ||
+                m.interpretation.removePulldown !== "OFF" || m.interpretation.loop !== 1) {
+                throw new Error("interpretation " + JSON.stringify(m.interpretation));
+            }
+            if (m.interpretation.hasAlpha === false && m.interpretation.alphaMode !== null) { throw new Error("alphaMode without alpha"); }
+            if (m.eligible !== undefined || m.still !== undefined) { throw new Error("eligible records should not carry constant fields"); }
+            if (!res.project || res.project.numItems !== app.project.numItems || typeof res.project.dirty !== "boolean") { throw new Error("project identity missing"); }
+            if (res.ineligible !== undefined) { throw new Error("ineligible listed without includeIneligible"); }
+            // Which interpretation reads the DOM answered, for the record.
+            var keys = [];
+            for (var k in m.interpretation) { if (m.interpretation.hasOwnProperty(k)) { keys.push(k); } }
+            return { id: m.id, frames: m.frames, interpretationFields: keys.join(",") };
+        });
+
+        record("media ids survive a move into a folder", function () {
+            if (!mediaItemId) { throw new Error("no clip from the previous case"); }
+            var folder = call("project", { command: "createFolder", name: "__mcp_media_folder" });
+            call("project", { command: "moveToFolder", itemIds: [mediaItemId], folderId: folder.folderId });
+            var res = call("media", {});
+            var m = mediaFind(res, "items", mediaItemId), n = 0;
+            for (var i = 0; i < res.items.length; i++) { if (res.items[i].path === mediaClip.fsName) { n++; } }
+            if (!m || n !== 1) { throw new Error("clip lost or duplicated after the move: " + n); }
+            if (m.parentFolderId !== folder.folderId) { throw new Error("parentFolderId " + m.parentFolderId); }
+            return { id: m.id, parentFolderId: m.parentFolderId };
+        });
+
+        record("media flags interpretation overrides: conform, loop, proxy", function () {
+            if (!mediaItemId) { throw new Error("no clip from the previous case"); }
+            var it = __mcp_itemById(mediaItemId), src = it.mainSource;
+            var png = new File(Folder.temp.fsName + "/mcp_media_proxy_" + new Date().getTime() + ".png");
+            var pc = app.project.items.addComp("mediaproxy", 64, 36, 1, 1, 24);
+            pc.layers.addSolid([0, 1, 0], "p", 64, 36, 1);
+            pc.saveFrameToPng(0, png);
+            for (var w = 0; w < 200 && !(png.exists && png.length > 60); w++) { $.sleep(25); }
+            $.sleep(150);
+            pc.remove();
+            try {
+                src.conformFrameRate = 30; src.loop = 2; it.setProxy(png);
+                var m = mediaFind(call("media", {}), "items", mediaItemId);
+                var o = m.interpretationOverrides.join(",");
+                if (o !== "conformFrameRate,loop,useProxy") { throw new Error("overrides " + o); }
+                if (m.useProxy !== true || m.proxyPath !== png.fsName) { throw new Error("proxy " + m.useProxy + " " + m.proxyPath); }
+                if (m.interpretation.conformFrameRate !== 30 || m.interpretation.loop !== 2) { throw new Error("interp " + JSON.stringify(m.interpretation)); }
+                return { overrides: o, frames: m.frames, frameRate: m.frameRate };
+            } finally {
+                try { src.conformFrameRate = 0; src.loop = 1; it.useProxy = false; } catch (e) {}
+                try { png.remove(); } catch (e) {}
+            }
+        });
+
+        record("media excludes solids, stills and placeholders, and names them with includeIneligible", function () {
+            var png = new File(Folder.temp.fsName + "/mcp_media_still_" + new Date().getTime() + ".png");
+            var sc = app.project.items.addComp("mediastill", 32, 32, 1, 1, 24);
+            var solidItemId = sc.layers.addSolid([0, 0, 1], "mediasolid", 32, 32, 1).source.id;
+            sc.saveFrameToPng(0, png);
+            for (var w = 0; w < 200 && !(png.exists && png.length > 60); w++) { $.sleep(25); }
+            $.sleep(150);
+            var stillId = app.project.importFile(new ImportOptions(png)).id;
+            var phId = app.project.importPlaceholder("__mcp_media_ph", 32, 32, 24, 1).id;
+            try {
+                var plain = call("media", {});
+                if (mediaFind(plain, "items", stillId) || mediaFind(plain, "items", solidItemId) || mediaFind(plain, "items", phId)) {
+                    throw new Error("an ineligible item was listed as eligible");
+                }
+                var all = call("media", { includeIneligible: true });
+                var st = mediaFind(all, "ineligible", stillId), so = mediaFind(all, "ineligible", solidItemId), ph = mediaFind(all, "ineligible", phId);
+                if (!st || st.reason !== "still") { throw new Error("still: " + JSON.stringify(st)); }
+                if (!so || so.reason !== "solid") { throw new Error("solid: " + JSON.stringify(so)); }
+                if (!ph || ph.reason !== "placeholder") { throw new Error("placeholder: " + JSON.stringify(ph)); }
+                var c = all.counts;
+                if (c.eligible !== all.items.length || c.ineligible !== all.ineligible.length || c.footage !== c.eligible + c.ineligible) {
+                    throw new Error("counts " + JSON.stringify(c));
+                }
+                return { still: st.reason, solid: so.reason, placeholder: ph.reason, counts: c };
+            } finally {
+                try { png.remove(); } catch (e) {}
+            }
+        });
+
+        record("media keeps a clip whose file was deleted, marked missing", function () {
+            if (!mediaClip) { throw new Error("no clip from the previous case"); }
+            var copy = new File(Folder.temp.fsName + "/mcp_media_gone_" + new Date().getTime() + ".mp4");
+            if (!mediaClip.copy(copy.fsName)) { throw new Error("could not copy the clip"); }
+            var goneId = app.project.importFile(new ImportOptions(copy)).id;
+            copy.remove();
+            // AE keeps footageMissing false until the project is reopened; the
+            // op must notice the file itself.
+            var res = call("media", {});
+            var m = mediaFind(res, "items", goneId);
+            if (!m) { throw new Error("deleted clip was dropped instead of reported"); }
+            if (m.missing !== true || m.path !== copy.fsName) { throw new Error("missing " + m.missing + " path " + m.path); }
+            if (res.counts.missing < 1) { throw new Error("counts.missing " + res.counts.missing); }
+            var live = mediaFind(res, "items", mediaItemId);
+            if (!live || live.missing !== false) { throw new Error("the intact clip was marked missing too"); }
+            return { id: goneId, missing: m.missing, footageMissing: __mcp_itemById(goneId).footageMissing, frames: m.frames };
+        });
+
+        record("media opens no undo group", function () {
+            // Read-only ops must not be in __mcp_mutating, or every poll from an
+            // adapter would push an entry onto the user's undo stack.
+            if (__mcp_wantsUndo("media", {})) { throw new Error("media is marked mutating"); }
+            try { mediaClip.remove(); } catch (e) {}
+            return true;
+        });
+
         record("shape colour alpha becomes Opacity on create, and ae_set warns that AE ignores it", function () {
             var sh = call("shapes", { compId: scratchCompId, kind: "rect", width: 40, height: 40, name: "alpha", fill: [0, 0, 0, 0.7] });
             var L = __mcp_layerById(sh.id);

@@ -108,12 +108,24 @@ const TOOLS = [
       'positioning text - a string\'s rendered width is not knowable from its font size, and ' +
       'guessing is how text ends up clipped or off-centre. Returns layer-space and an ' +
       'approximate comp-space box. A freshly created shape layer can report 0x0 until After ' +
-      'Effects has evaluated it, so check `reliable` before trusting a zero.\n\n' +
-      'Ids from these are stable across reorders and saves. Always address by id.',
+      'Effects has evaluated it, so check `reliable` before trusting a zero.\n' +
+      '- media: the footage an EXTERNAL tool could open - file-backed, moving, with video - for adapters ' +
+      'such as a rotoscoping/segmentation app that reads the source file and returns masks. Per item: id, ' +
+      'name, path (absolute), width, height, pixelAspect, duration, frameRate, frames, hasAudio, missing ' +
+      '(true = the file is gone; the item is still listed so the user can be told to reconnect it), ' +
+      'useProxy, proxyPath, interpretation {nativeFrameRate, conformFrameRate (0 = native), ' +
+      'fieldSeparation, removePulldown, loop, hasAlpha, alphaMode}, and interpretationOverrides: the ' +
+      'settings that make After Effects\' frame N differ from the file\'s frame N. Only an item with an ' +
+      'EMPTY overrides list maps frame-for-frame to its file. imageSequence:true means path is the first ' +
+      'frame. Also returns project {path, name, dirty} so an adapter can notice a project switch. ' +
+      'includeIneligible:true adds solids, stills, placeholders and audio-only items under `ineligible` ' +
+      'with a reason. Read-only. Roughly 200 tokens per item. See ae-vision://integrations for the ' +
+      'adapter contract.\n\n' +
+      'Ids from these are stable across reorders, folder moves and saves. Always address by id.',
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: ['sessionInfo', 'tree', 'find', 'propertyKeys', 'propertyValues', 'selection', 'bounds', 'describe'] },
+        command: { type: 'string', enum: ['sessionInfo', 'tree', 'find', 'propertyKeys', 'propertyValues', 'selection', 'bounds', 'describe', 'media'] },
         tool: { type: 'string', description: 'describe: the tool whose live schema to return, e.g. "ae_masks". Omit for every tool name.' },
         compId: { type: 'number', description: 'Composition id. Defaults to the active comp.' },
         layerId: { type: 'number', description: 'Layer id, required by propertyKeys and propertyValues.' },
@@ -127,6 +139,7 @@ const TOOLS = [
         time: { type: 'number', description: 'bounds/propertyValues: evaluate at this time (comp seconds). Defaults to the playhead; propertyValues reports the time it used.' },
         includeExtents: { type: 'boolean', description: 'bounds: include masks and effects in the box.' },
         limit: { type: 'number', description: 'find: max matches. Default 100.' },
+        includeIneligible: { type: 'boolean', description: 'media: also list footage an external tool cannot use (solids, stills, placeholders, audio-only), each with a reason.' },
       },
       required: ['command'],
     },
