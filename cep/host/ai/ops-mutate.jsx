@@ -120,6 +120,7 @@ function __mcp_applyWrite(doc, it, w) {
         if (it.typename !== "PathItem") { throw { code: "type_mismatch", message: "points applies to paths, not " + it.typename }; }
         __mcp_validatePoints(w.points, 2);
         var abP = __mcp_has(w.artboard) ? Number(w.artboard) : __mcp_artboardOf(doc, it.geometricBounds);
+        abP = __mcp_artboardIndex(doc, abP === null ? undefined : abP);
         while (it.pathPoints.length > 1) { it.pathPoints[it.pathPoints.length - 1].remove(); }
         // A path cannot hold zero points, so the first one is rewritten in
         // place and the rest are appended after it.

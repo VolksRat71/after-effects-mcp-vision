@@ -55,7 +55,7 @@ test('export renders privately and moves to exactly the path asked for', () => {
   const exp = fnBody(code('cep/host/ai/ops-build.jsx'), 'exportFile: function');
   assert.match(exp, /new Folder\(__mcp_captureDir\(\)\.fsName \+ "\/export-"/);
   assert.match(exp, /produced\.length !== 1/, 'exactly one output, or an error');
-  assert.match(exp, /if \(file\.exists\) \{\s*if \(args\.overwrite !== true\)/, 'the destination is re-checked before the move');
+  assert.match(exp, /__mcp_replaceExport\(produced\[0\], file, args\.overwrite\)/, 'replacement uses the staged export helper');
   assert.match(exp, /__mcp_removeTree\(tmp\)/);
   assert.doesNotMatch(exp, /getFiles\(/, 'no pattern search next to the destination');
 });

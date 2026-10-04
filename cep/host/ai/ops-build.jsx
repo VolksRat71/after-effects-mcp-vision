@@ -38,6 +38,39 @@ function __mcp_setArtboardRect(doc, rect, apply) {
     }
 }
 
+/* Stage on the destination volume before moving the previous deliverable aside.
+ * Failed replacements retain the staged render and report its recovery path.
+ */
+function __mcp_replaceExport(source, destination, overwrite) {
+    var targetPath = destination.fsName;
+    var targetName = destination.name;
+    var suffix = ".mcp-" + new Date().getTime() + "-" + Math.floor(Math.random() * 1e9);
+    var staged = new File(targetPath + suffix + ".staged");
+    var backup = new File(targetPath + suffix + ".backup");
+    if (staged.exists || backup.exists) { throw new Error("Export staging path already exists; retry the export"); }
+    if (!source.copy(staged.fsName) || !staged.exists || staged.length !== source.length) {
+        throw new Error("Could not stage a complete export at " + staged.fsName);
+    }
+    // Re-check after copying: the destination may have appeared during rendering.
+    var old = new File(targetPath);
+    var backedUp = false;
+    if (old.exists) {
+        if (overwrite !== true) { throw new Error(targetPath + " exists - pass overwrite:true to replace it; render retained at " + staged.fsName); }
+        if (!old.rename(backup.name)) { throw new Error("Could not back up " + targetPath + "; render retained at " + staged.fsName); }
+        backedUp = true;
+    }
+    var promoted = false;
+    try { promoted = staged.rename(targetName); } catch (e) {}
+    if (!promoted) {
+        var restored = !backedUp;
+        if (backedUp) { try { restored = new File(backup.fsName).rename(targetName); } catch (e2) {} }
+        throw new Error("Could not replace " + targetPath + "; render retained at " + staged.fsName +
+                        (restored ? "; previous output restored" : "; previous output retained at " + backup.fsName));
+    }
+    // A failed backup cleanup must never turn a successful replacement into loss.
+    if (backedUp) { try { new File(backup.fsName).remove(); } catch (e3) {} }
+}
+
 function __mcp_ensureParent(file) {
     if (!file.parent.exists) { file.parent.create(); }
 }
@@ -480,6 +513,7 @@ var __mcp_buildOps = {
          */
         var tmp = new Folder(__mcp_captureDir().fsName + "/export-" + t0 + "-" + Math.floor(Math.random() * 1e6));
         tmp.create();
+        var exportComplete = false;
         try {
             if (format === "svg") {
                 __mcp_exportSvgInto(doc, abIndex, tmp, args);
@@ -504,15 +538,14 @@ var __mcp_buildOps = {
             if (produced.length !== 1) {
                 throw new Error("Illustrator reported no error but produced " + produced.length + " " + format + " files");
             }
-            // Re-check: the destination may have appeared while Illustrator rendered.
-            if (file.exists) {
-                if (args.overwrite !== true) { throw new Error(file.fsName + " exists - pass overwrite:true to replace it"); }
-                if (!file.remove()) { throw new Error("Could not replace " + file.fsName); }
-            }
-            if (!produced[0].copy(file.fsName)) { throw new Error("Could not write " + file.fsName); }
+            __mcp_replaceExport(produced[0], file, args.overwrite);
+            exportComplete = true;
+        } catch (e) {
+            // Keep the original render even when staging or recovery failed.
+            throw new Error(String(e.message || e) + "; original render retained at " + tmp.fsName);
         } finally {
             try { doc.artboards.setActiveArtboardIndex(priorActive); } catch (x) {}
-            __mcp_removeTree(tmp);
+            if (exportComplete) { __mcp_removeTree(tmp); }
         }
 
         var written = new File(file.fsName);

@@ -137,3 +137,94 @@ test('point lists are validated in full before a path is touched', () => {
     assert.throws(() => ctx.__mcp_validatePoints(inside(ctx, bad), 2), (e) => e.code === 'bad_value', JSON.stringify(bad));
   }
 });
+
+test('invalid artboard preserves every existing path point', () => {
+  const ctx = loadHost(null);
+  vm.runInContext(`
+    var doc = {artboards: [{artboardRect:[0,100,100,0]}]};
+    doc.artboards.getActiveArtboardIndex = function () { return 0; };
+    var item = {typename:'PathItem', geometricBounds:[0,10,10,0], pathPoints:[]};
+    for (var i=0; i<4; i++) item.pathPoints.push({remove:function () {
+      item.pathPoints.splice(item.pathPoints.indexOf(this),1);
+    }});
+  `, ctx);
+  assert.throws(() => ctx.__mcp_applyWrite(ctx.doc, ctx.item, inside(ctx, {artboard:99, points:[[0,0],[10,10]]})), /artboard 99 does not exist/);
+  assert.strictEqual(ctx.item.pathPoints.length, 4);
+});
+
+function exportFilesystem(options = {}) {
+  const files = new Map([['/tmp/render.png', 'new render'], ['/out/result.png', 'old output']]);
+  function File(name) {
+    if (!(this instanceof File)) return new File(name);
+    this.fsName = name;
+  }
+  Object.defineProperties(File.prototype, {
+    name: {get() { return this.fsName.split('/').pop(); }},
+    exists: {get() { return files.has(this.fsName); }},
+    length: {get() { return (files.get(this.fsName) || '').length; }},
+  });
+  File.prototype.copy = function (target) {
+    if (options.copyFails) return false;
+    files.set(target, options.shortCopy ? 'x' : files.get(this.fsName));
+    return true;
+  };
+  File.prototype.rename = function (name) {
+    if (this.fsName.endsWith('.staged') && options.promoteThrows) throw new Error('rename failed');
+    if (this.fsName.endsWith('.staged') && options.promoteFails) return false;
+    if (this.fsName.endsWith('.backup') && options.restoreFails) return false;
+    const target = this.fsName.slice(0, this.fsName.lastIndexOf('/') + 1) + name;
+    if (files.has(target)) return false;
+    files.set(target, files.get(this.fsName));
+    files.delete(this.fsName);
+    this.fsName = target;
+    return true;
+  };
+  File.prototype.remove = function () { return files.delete(this.fsName); };
+  const ctx = loadHost(null);
+  ctx.File = File;
+  return {files, replace: (overwrite = true) => ctx.__mcp_replaceExport(new File('/tmp/render.png'), new File('/out/result.png'), overwrite)};
+}
+
+for (const options of [{copyFails:true}, {shortCopy:true}]) {
+  test('failed or incomplete staging preserves previous export: ' + JSON.stringify(options), () => {
+    const f = exportFilesystem(options);
+    assert.throws(f.replace, /Could not stage/);
+    assert.strictEqual(f.files.get('/out/result.png'), 'old output');
+    assert.strictEqual(f.files.get('/tmp/render.png'), 'new render');
+  });
+}
+
+test('failed export promotion restores previous output and retains staged render', () => {
+  const f = exportFilesystem({promoteFails:true});
+  assert.throws(f.replace, /previous output restored/);
+  assert.strictEqual(f.files.get('/out/result.png'), 'old output');
+  assert.ok([...f.files].some(([p, v]) => p.endsWith('.staged') && v === 'new render'));
+});
+
+test('failed export recovery preserves both backup and staged render', () => {
+  const f = exportFilesystem({promoteFails:true, restoreFails:true});
+  assert.throws(f.replace, /previous output retained at/);
+  assert.ok([...f.files].some(([p, v]) => p.endsWith('.backup') && v === 'old output'));
+  assert.ok([...f.files].some(([p, v]) => p.endsWith('.staged') && v === 'new render'));
+});
+
+test('successful export replacement installs render and removes backup', () => {
+  const f = exportFilesystem();
+  f.replace();
+  assert.strictEqual(f.files.get('/out/result.png'), 'new render');
+  assert.ok(![...f.files.keys()].some(p => /\.(backup|staged)$/.test(p)));
+});
+
+
+test('throwing export promotion also restores previous output', () => {
+  const f = exportFilesystem({promoteThrows:true});
+  assert.throws(f.replace, /previous output restored/);
+  assert.strictEqual(f.files.get('/out/result.png'), 'old output');
+});
+
+
+test('replacement rechecks overwrite permission and preserves existing output', () => {
+  const f = exportFilesystem();
+  assert.throws(() => f.replace(false), /pass overwrite:true/);
+  assert.strictEqual(f.files.get('/out/result.png'), 'old output');
+});
