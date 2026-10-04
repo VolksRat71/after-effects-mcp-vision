@@ -33,8 +33,8 @@ function __mcp_colorArg(c, fallback) {
 
 /*
  * A render destination: needs a media extension, refuses to overwrite unless
- * asked (removing the old file so a later exists-check reports THIS render),
- * and creates a missing parent folder - AE fails the whole queue on one.
+ * asked, and creates a missing parent folder - AE fails the whole queue on one.
+ * Existing files are removed only after output settings pass preflight.
  */
 function __mcp_renderTarget(outPath, overwrite) {
     if (!outPath) { throw new Error("outputPath is required"); }
@@ -44,7 +44,6 @@ function __mcp_renderTarget(outPath, overwrite) {
     var f = new File(outPath);
     if (f.exists) {
         if (!overwrite) { throw new Error("would overwrite " + outPath + " - pass overwrite:true"); }
-        f.remove();
     }
     if (!f.parent.exists && !f.parent.create()) { throw new Error("could not create folder " + f.parent.fsName); }
     return f;
@@ -72,6 +71,43 @@ function __mcp_applyOutput(om, file, omTemplate) {
         throw new Error("output template '" + tpl + "' writes ." + got + ", not ." + ext +
                         " - pick an omTemplate that makes ." + ext + " or change the extension");
     }
+    // AE accepts a plain .tif destination but then fails rendering it. Sequence
+    // modules require a frame placeholder even when the extension is already canonical.
+    var sequence = /sequence/i.test(tpl);
+    try { sequence = sequence || /sequence/i.test(String(om.getSettings(GetSettingsFormat.STRING)["Format"])); } catch (e2) {}
+    if (sequence && !/\[#+\]/.test(om.file.fsName)) {
+        om.file = new File(om.file.fsName.replace(/(\.[^.]*)$/, "_[#####]$1"));
+    }
+    return new File(om.file.fsName);
+}
+
+// Resolve AE's sequence placeholder against disk. Use fsName: File.name URI-encodes
+// the brackets, and AE may canonicalize both the extension and sequence suffix.
+function __mcp_renderFiles(file) {
+    var token = /\[#+\]/.exec(file.fsName);
+    if (!token) { return file.exists ? [file] : []; }
+    var escapeRE = function (s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); };
+    var re = new RegExp("^" + escapeRE(file.fsName.slice(0, token.index)) + "-?[0-9]+" +
+                        escapeRE(file.fsName.slice(token.index + token[0].length)) + "$");
+    var entries = file.parent.getFiles(), files = [];
+    for (var i = 0; i < entries.length; i++) {
+        if (entries[i] instanceof File && re.test(entries[i].fsName)) { files.push(entries[i]); }
+    }
+    return files;
+}
+
+function __mcp_prepareRenderFiles(file, overwrite) {
+    var files = __mcp_renderFiles(file);
+    if (files.length && !overwrite) { throw new Error("would overwrite " + file.fsName + " - pass overwrite:true"); }
+    for (var i = 0; i < files.length; i++) {
+        if (!files[i].remove()) { throw new Error("could not remove existing output " + files[i].fsName); }
+    }
+}
+
+function __mcp_renderFileInfo(file) {
+    var files = __mcp_renderFiles(file), bytes = 0;
+    for (var i = 0; i < files.length; i++) { bytes += files[i].length; }
+    return { exists: files.length > 0, bytes: bytes, fileCount: files.length };
 }
 
 var __mcp_buildOps = {
@@ -798,7 +834,8 @@ var __mcp_buildOps = {
                         var jf = __mcp_renderTarget(String(job.outputPath || ""), (job.overwrite === true) || (args.overwrite === true));
                         ji = rq.items.add(jc);
                         if (job.rsTemplate) { ji.applyTemplate(String(job.rsTemplate)); }
-                        __mcp_applyOutput(ji.outputModule(1), jf, job.omTemplate);
+                        jf = __mcp_applyOutput(ji.outputModule(1), jf, job.omTemplate);
+                        __mcp_prepareRenderFiles(jf, (job.overwrite === true) || (args.overwrite === true));
                         ji.comment = "[MCP batch]";
                         added.push({ index: j, compId: jc.id, outputPath: jf.fsName, item: ji });
                     } catch (e) {
@@ -811,11 +848,11 @@ var __mcp_buildOps = {
                     try { rq.render(); }
                     catch (re) { failures.push({ index: null, message: "render stopped: " + String(re) }); }
                     for (var a = 0; a < added.length; a++) {
-                        var f2 = new File(added[a].outputPath);
+                        var f2 = __mcp_renderFileInfo(new File(added[a].outputPath));
                         var done = false;
                         try { done = (added[a].item.status === RQItemStatus.DONE); } catch (e3) {}
                         var rec = { index: added[a].index, compId: added[a].compId, outputPath: added[a].outputPath,
-                                    done: done, exists: f2.exists, bytes: f2.exists ? f2.length : 0 };
+                                    done: done, exists: f2.exists, bytes: f2.bytes, fileCount: f2.fileCount };
                         results.push(rec);
                         if (!done || !f2.exists) {
                             failures.push({ index: added[a].index, message: "produced no file at " + added[a].outputPath +
@@ -847,16 +884,17 @@ var __mcp_buildOps = {
             if (args.rsTemplate) { item.applyTemplate(String(args.rsTemplate)); }
             if (args.startTime !== undefined) { item.timeSpanStart = Number(args.startTime); }
             if (args.endTime !== undefined) { item.timeSpanDuration = Number(args.endTime) - item.timeSpanStart; }
-            __mcp_applyOutput(item.outputModule(1), dest, args.omTemplate);
+            dest = __mcp_applyOutput(item.outputModule(1), dest, args.omTemplate);
+            __mcp_prepareRenderFiles(dest, args.overwrite === true);
             item.comment = "[MCP]";
             var t0 = new Date().getTime();
             rq.render();
+            var fileInfo = __mcp_renderFileInfo(dest);
             result = {
                 compId: comp.id, compName: comp.name, outputPath: dest.fsName,
                 status: String(item.status), done: (item.status === RQItemStatus.DONE),
                 elapsedMs: new Date().getTime() - t0,
-                exists: (new File(dest.fsName)).exists,
-                bytes: (new File(dest.fsName)).exists ? (new File(dest.fsName)).length : 0
+                exists: fileInfo.exists, bytes: fileInfo.bytes, fileCount: fileInfo.fileCount
             };
         } finally {
             try { item.remove(); } catch (e) {}
