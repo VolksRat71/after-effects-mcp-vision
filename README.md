@@ -100,7 +100,8 @@ external tool can open, with its source path, size, timing and any
 interpretation overrides.
 
 [**sam-ui**](https://github.com/VolksRat71/sam-ui) uses it for a rotoscoping
-round trip: open After Effects footage in place in the sam-ui desktop app,
+round trip, shipped in sam-ui 0.3.0: open After Effects footage in place in the
+sam-ui desktop app,
 track objects with SAM 2 or SAM 3, and export the result back to a new comp as
 animated masks.
 
