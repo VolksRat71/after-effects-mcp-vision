@@ -16,7 +16,7 @@ const path = require('path');
  * packagers copy docs/ INTO the extension, so a release has <ext>/docs. A dev
  * install symlinks cep/ itself, so there the docs sit one level further up, in
  * the repo root. Only the second path used to be checked, which meant every
- * packaged install answered all three resources with "file is missing".
+ * packaged install answered every resource with "file is missing".
  */
 const DOCS_CANDIDATES = [
   path.join(__dirname, '..', 'docs'),        // packaged: <ext>/docs

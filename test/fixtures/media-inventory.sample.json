@@ -1,0 +1,132 @@
+{
+  "ok": true,
+  "result": {
+    "project": {
+      "path": "/Users/example/Projects/Spot_30s/Spot_30s_v04.aep",
+      "name": "Spot_30s_v04.aep",
+      "dirty": true,
+      "numItems": 34
+    },
+    "items": [
+      {
+        "id": 12,
+        "name": "A001_C003_hero.mov",
+        "kind": "file",
+        "parentFolderId": 8,
+        "path": "/Users/example/Footage/Shoot_0412/A001_C003_hero.mov",
+        "missing": false,
+        "hasAudio": true,
+        "width": 1920,
+        "height": 1080,
+        "pixelAspect": 1,
+        "duration": 12.5125,
+        "frameRate": 23.9760246276855,
+        "frames": 300,
+        "interpretation": {
+          "nativeFrameRate": 23.9760246276855,
+          "conformFrameRate": 0,
+          "displayFrameRate": 23.9760246276855,
+          "fieldSeparation": "OFF",
+          "highQualityFieldSeparation": false,
+          "removePulldown": "OFF",
+          "loop": 1,
+          "hasAlpha": false,
+          "alphaMode": null
+        },
+        "useProxy": false,
+        "interpretationOverrides": []
+      },
+      {
+        "id": 15,
+        "name": "drone_pass_02.mp4",
+        "kind": "file",
+        "parentFolderId": 8,
+        "path": "/Users/example/Footage/Shoot_0412/drone_pass_02.mp4",
+        "missing": false,
+        "hasAudio": false,
+        "width": 3840,
+        "height": 2160,
+        "pixelAspect": 1,
+        "duration": 10,
+        "frameRate": 24,
+        "frames": 240,
+        "interpretation": {
+          "nativeFrameRate": 29.9700298309326,
+          "conformFrameRate": 24,
+          "displayFrameRate": 24,
+          "fieldSeparation": "OFF",
+          "highQualityFieldSeparation": false,
+          "removePulldown": "OFF",
+          "loop": 1,
+          "hasAlpha": false,
+          "alphaMode": null
+        },
+        "useProxy": true,
+        "proxyPath": "/Users/example/Footage/Proxies/drone_pass_02_proxy.mov",
+        "interpretationOverrides": ["conformFrameRate", "useProxy"]
+      },
+      {
+        "id": 21,
+        "name": "interview_cam_b.mov",
+        "kind": "file",
+        "parentFolderId": null,
+        "path": "/Users/example/Footage/Shoot_0412/interview_cam_b.mov",
+        "missing": true,
+        "hasAudio": true,
+        "width": 1920,
+        "height": 1080,
+        "pixelAspect": 1,
+        "duration": 40,
+        "frameRate": 25,
+        "frames": 1000,
+        "interpretation": {
+          "nativeFrameRate": 25,
+          "conformFrameRate": 0,
+          "displayFrameRate": 25,
+          "fieldSeparation": "OFF",
+          "highQualityFieldSeparation": false,
+          "removePulldown": "OFF",
+          "loop": 1,
+          "hasAlpha": false,
+          "alphaMode": null
+        },
+        "useProxy": false,
+        "interpretationOverrides": []
+      }
+    ],
+    "counts": {
+      "footage": 5,
+      "eligible": 3,
+      "missing": 1,
+      "ineligible": 2
+    },
+    "ineligible": [
+      {
+        "id": 30,
+        "name": "Dark Gray Solid 1",
+        "kind": "solid",
+        "reason": "solid",
+        "parentFolderId": 29,
+        "path": null,
+        "width": 1920,
+        "height": 1080,
+        "hasVideo": true,
+        "hasAudio": false,
+        "still": true
+      },
+      {
+        "id": 33,
+        "name": "logo_lockup.png",
+        "kind": "file",
+        "reason": "still",
+        "parentFolderId": 8,
+        "path": "/Users/example/Footage/Graphics/logo_lockup.png",
+        "width": 1200,
+        "height": 400,
+        "hasVideo": true,
+        "hasAudio": false,
+        "still": true
+      }
+    ]
+  }
+}

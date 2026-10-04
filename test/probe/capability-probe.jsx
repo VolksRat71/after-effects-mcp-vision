@@ -626,9 +626,9 @@ function probeShapes() {
 
     probe("D8", "shapes", function () {
         var r = call("shapes", { command: "create", compId: COMP.id, kind: "ellipse", width: 80, height: 80 });
-        var hasGroupTransform = !!(r.paths && r.paths.groupTransform);
+        var hasGroupTransform = !!(r.paths && r.paths.groupPosition);
         return { verdict: hasGroupTransform ? "PASS" : "FAIL",
-                 evidence: "groupTransform path returned: " + (hasGroupTransform ? r.paths.groupTransform.join(" > ") : "no") };
+                 evidence: "group transform path returned: " + (hasGroupTransform ? r.paths.groupPosition.join(" > ") : "no") };
     });
 }
 

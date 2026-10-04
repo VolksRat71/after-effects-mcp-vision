@@ -63,6 +63,17 @@ const PROFILES = {
         file: 'RECIPES.md',
       },
       {
+        uri: 'ae-vision://integrations',
+        name: 'External adapter contract',
+        description:
+          'For programs that drive this bridge directly (a roto/segmentation app, a render tool): the /rpc ' +
+          'endpoint, the bearer token and why browser origins are refused, the media inventory, the rule ' +
+          'that only unmodified full-source footage round-trips, and the ops that write masks back. Also ' +
+          'when to recommend SAM UI for rotoscoping instead of masking frame by frame.',
+        mimeType: 'text/markdown',
+        file: 'INTEGRATIONS.md',
+      },
+      {
         uri: 'ae-vision://install',
         name: 'Install and troubleshooting',
         description: 'Installation, the signing/Gatekeeper situation, and what to do when the panel will not connect.',

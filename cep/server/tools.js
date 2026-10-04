@@ -80,6 +80,11 @@ function errorContent(message) {
   return { content: [{ type: 'text', text: message }], isError: true };
 }
 
+// A property path segment: a matchName, a display name, or a 1-based index.
+// Indexes are what ae_shapes returns for shape groups, since AE does not
+// always resolve a long group name it was just given.
+const PATH_SEGMENT = { type: ['string', 'number'] };
+
 const TOOLS = [
   {
     name: 'ae_query',
@@ -95,7 +100,7 @@ const TOOLS = [
       'depth defaults to 2, which is transform plus effect group headers. Raise it to drill into ' +
       'ONE branch via `path`; a depth-6 walk of a shape layer can run to thousands of tokens.\n' +
       '- propertyValues: read specific properties by path, at `time` if given. Mask paths come back as ' +
-      'a summary: vertexCount, closed, bbox, collapsed.\n' +
+      'a summary: vertexCount, closed, bbox, collapsed. Popups add label and options.\n' +
       '- selection: what the user currently has selected.\n' +      '- describe: the live schema of a tool ({tool:"ae_masks"}), straight from this server. Use it when ' +
       'a command or argument you expect is missing from your tool list - clients can cache definitions ' +
       'from session start.\n' +
@@ -103,25 +108,38 @@ const TOOLS = [
       'positioning text - a string\'s rendered width is not knowable from its font size, and ' +
       'guessing is how text ends up clipped or off-centre. Returns layer-space and an ' +
       'approximate comp-space box. A freshly created shape layer can report 0x0 until After ' +
-      'Effects has evaluated it, so check `reliable` before trusting a zero.\n\n' +
-      'Ids from these are stable across reorders and saves. Always address by id.',
+      'Effects has evaluated it, so check `reliable` before trusting a zero.\n' +
+      '- media: the footage an EXTERNAL tool could open - file-backed, moving, with video - for adapters ' +
+      'such as a rotoscoping/segmentation app that reads the source file and returns masks. Per item: id, ' +
+      'name, path (absolute), width, height, pixelAspect, duration, frameRate, frames, hasAudio, missing ' +
+      '(true = the file is gone; the item is still listed so the user can be told to reconnect it), ' +
+      'useProxy, proxyPath, interpretation {nativeFrameRate, conformFrameRate (0 = native), ' +
+      'fieldSeparation, removePulldown, loop, hasAlpha, alphaMode}, and interpretationOverrides: the ' +
+      'settings that make After Effects\' frame N differ from the file\'s frame N. Only an item with an ' +
+      'EMPTY overrides list maps frame-for-frame to its file. imageSequence:true means path is the first ' +
+      'frame. Also returns project {path, name, dirty} so an adapter can notice a project switch. ' +
+      'includeIneligible:true adds solids, stills, placeholders and audio-only items under `ineligible` ' +
+      'with a reason. Read-only. Roughly 200 tokens per item. See ae-vision://integrations for the ' +
+      'adapter contract.\n\n' +
+      'Ids from these are stable across reorders, folder moves and saves. Always address by id.',
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: ['sessionInfo', 'tree', 'find', 'propertyKeys', 'propertyValues', 'selection', 'bounds', 'describe'] },
+        command: { type: 'string', enum: ['sessionInfo', 'tree', 'find', 'propertyKeys', 'propertyValues', 'selection', 'bounds', 'describe', 'media'] },
         tool: { type: 'string', description: 'describe: the tool whose live schema to return, e.g. "ae_masks". Omit for every tool name.' },
         compId: { type: 'number', description: 'Composition id. Defaults to the active comp.' },
         layerId: { type: 'number', description: 'Layer id, required by propertyKeys and propertyValues.' },
         name: { type: 'string', description: 'find: case-insensitive substring.' },
         type: { type: 'string', description: 'find: e.g. TextLayer, ShapeLayer, AVLayer, Composition, Footage.' },
         scope: { type: 'string', enum: ['layers', 'items'], description: 'find scope. Default layers.' },
-        path: { type: 'array', items: { type: 'string' }, description: 'propertyKeys: matchName path to start from.' },
-        paths: { type: 'array', items: { type: 'array', items: { type: 'string' } }, description: 'propertyValues: matchName paths to read.' },
+        path: { type: 'array', items: PATH_SEGMENT, description: 'propertyKeys: matchName path to start from.' },
+        paths: { type: 'array', items: { type: 'array', items: PATH_SEGMENT }, description: 'propertyValues: matchName paths to read.' },
         depth: { type: 'number', description: 'propertyKeys depth, 1-8. Default 2. Start shallow.' },
         includeValues: { type: 'boolean', description: 'propertyKeys: include current values. Roughly doubles output size.' },
         time: { type: 'number', description: 'bounds/propertyValues: evaluate at this time (comp seconds). Defaults to the playhead; propertyValues reports the time it used.' },
         includeExtents: { type: 'boolean', description: 'bounds: include masks and effects in the box.' },
         limit: { type: 'number', description: 'find: max matches. Default 100.' },
+        includeIneligible: { type: 'boolean', description: 'media: also list footage an external tool cannot use (solids, stills, placeholders, audio-only), each with a reason.' },
       },
       required: ['command'],
     },
@@ -134,7 +152,11 @@ const TOOLS = [
       'Paths are matchName arrays from ae_query propertyKeys, e.g. ' +
       '["ADBE Transform Group","ADBE Position"]. Note 2D layers expose "ADBE Rotate Z", not ' +
       '"ADBE Rotation".\n\n' +
-      'Give a write a `time` to make it a keyframe instead of a static value.\n\n' +
+      'Give a write a `time` to make it a keyframe instead of a static value.\n\n' +      'POPUP parameters (Stroke Paint Style, Glow Composite Original, ...) take their menu label as ' +
+      'the value - "On Transparent" - rather than a guessed integer; a wrong label errors with the ' +
+      'options. ae_query propertyValues shows value, label and options for a popup.\n\n' +
+      'A `warnings` array flags writes AE accepts but ignores - e.g. alpha on a shape fill or stroke colour, ' +
+      'which renders opaque; the warning names the Opacity property to set instead.\n\n' +
       'Partial success is normal: the response reports appliedCount plus a per-item errors array ' +
       'with codes (unknown_id, unknown_path, type_mismatch, not_a_property, invalid_expression). ' +
       'One bad path does not discard the rest of the batch. The whole batch is a single undo step.',
@@ -149,8 +171,8 @@ const TOOLS = [
             type: 'object',
             properties: {
               layerId: { type: 'number' },
-              path: { type: 'array', items: { type: 'string' } },
-              value: { description: 'Number for 1D, array for 2D/3D/colour - colour channels are 0-1, NOT 0-255. For a text document: a string, or {text,fontSize,font,justification,fillColor,tracking,leading}. Point text anchors at the baseline LEFT, so centre it with justification:"center" rather than by nudging position.' },
+              path: { type: 'array', items: PATH_SEGMENT },
+              value: { description: 'Number for 1D, array for 2D/3D/colour - colour channels are 0-1, NOT 0-255. For a text document: a string, or {text,fontSize,font,justification,fillColor,tracking,leading}; font takes a PostScript name, a family ("Courier New") or "Family Style". Point text anchors at the baseline LEFT, so centre it with justification:"center" rather than by nudging position.' },
               expression: { type: 'string' },
               time: { type: 'number', description: 'Present = write a keyframe at this time.' },
             },
@@ -174,7 +196,7 @@ const TOOLS = [
       type: 'object',
       properties: {
         layerId: { type: 'number' },
-        path: { type: 'array', items: { type: 'string' } },
+        path: { type: 'array', items: PATH_SEGMENT },
         add: { type: 'array', items: { type: 'object', properties: { time: { type: 'number' }, value: {}, hold: { type: 'boolean', description: 'Freeze this value until the next key - for cuts and stepped motion.' } }, required: ['time', 'value'] } },
         remove: { type: 'array', items: { type: 'number' }, description: '1-based key indices to delete.' },
         ease: {
@@ -204,7 +226,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: ['createText', 'createBoxText', 'createSolid', 'createShape', 'createNull', 'delete', 'duplicate', 'rename', 'select', 'setEnabled', 'setLocked', 'reparent', 'reorder', 'setCollapse', 'applyPreset', 'organise'] },
+        command: { type: 'string', enum: ['createText', 'createBoxText', 'createSolid', 'createShape', 'createNull', 'delete', 'duplicate', 'rename', 'select', 'setEnabled', 'setAudioEnabled', 'setLocked', 'reparent', 'reorder', 'setCollapse', 'applyPreset', 'organise'] },
         compId: { type: 'number' },
         layerId: { type: 'number' },
         name: { type: 'string' },
@@ -344,12 +366,19 @@ const TOOLS = [
       'the Mask Opacity keys inside its own time range, so split calls cannot leave each other stuck at 0.\n\n' +
       'FROM A FILE: pass keysPath (absolute) instead of keys - tracker output goes straight from disk, ' +
       'costing no tokens. keysPointer selects inside the file ("/add/0"); per-frame arrays use fps.\n\n' +
+      'TIME BASE: key times are COMP seconds by default. A tracker file indexes frames of the clip, so ' +
+      'on a layer whose startTime was shifted pass timeBase:"layer" (maps through startTime and ' +
+      'stretch) rather than zeroing startTime around the call. timeOffset adds seconds on top.\n\n' +
       'MODES: pass mode on add, or call setMode. Holes (the gap between an arm and a torso) ' +
-      'need mode:"subtract" on their own mask - inverting a mask is not the same thing.',
+      'need mode:"subtract" on their own mask - inverting a mask is not the same thing. ORDER matters: ' +
+      'masks composite top to bottom, so an add BELOW a subtract fills the hole back in. add appends at ' +
+      'the bottom unless given index; reorder moves an existing mask. After an indexed add, address ' +
+      'masks by maskName, since "the most recent" means the bottom one.',
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: ['add', 'setRect', 'setPath', 'setPathKeys', 'setMode', 'rename', 'setFeather', 'list', 'remove'] },
+        command: { type: 'string', enum: ['add', 'setRect', 'setPath', 'setPathKeys', 'setMode', 'rename', 'reorder', 'setFeather', 'list', 'remove'] },
+        index: { type: 'number', description: 'reorder, or add: the 1-based position (1 = top). Masks composite top to bottom.' },
         layerId: { type: 'number' },
         maskIndex: { type: 'number', description: 'Defaults to the most recently added mask.' },
         maskName: { type: 'string', description: 'setPathKeys/setMode/rename: address a mask by name instead of index.' },
@@ -384,6 +413,8 @@ const TOOLS = [
           'output - inline vertices cost the agent tokens for every point.' },
         keysPointer: { type: 'string', description: 'setPathKeys: JSON Pointer into keysPath\'s file, e.g. "/add/0" for slot 0 of {add:[[...]]}.' },
         fps: { type: 'number', description: 'setPathKeys with per-frame data: frames per second (time = frame/fps). Defaults to the file\'s "fps".' },
+        timeBase: { type: 'string', enum: ['comp', 'layer'], description: 'setPathKeys: what key times (and per-frame file indexes) are measured in. comp (default) = comp seconds, which is what AE stores. layer = the layer\'s own clip time, mapped through its startTime and stretch - use it for a clip-wide tracker file on a layer that has been shifted.' },
+        timeOffset: { type: 'number', description: 'setPathKeys: seconds added to every key time, after timeBase.' },
         hold: { type: 'boolean', description: 'setPathKeys: make every key in this call a hold keyframe. Use for traced/tracked outlines.' },
         mode: { type: 'string', enum: ['add', 'subtract', 'intersect', 'lighten', 'darken', 'difference', 'none'],
           description: 'add/setMode: mask blend mode. Default for a new mask is add.' },
@@ -427,7 +458,7 @@ const TOOLS = [
         protectedRegion: { type: 'boolean', description: 'addMarker: Responsive Design - Time. A protected region plays at original speed when an editor retimes the template downstream.' },
         enabled: { type: 'boolean' },
         enableForComp: { type: 'boolean', description: 'setMotionBlur: also switch it on for the comp. Default true - a layer\'s motion blur does nothing without it.' },
-        path: { type: 'array', items: { type: 'string' }, description: 'separateDimensions: defaults to Position.' },
+        path: { type: 'array', items: PATH_SEGMENT, description: 'separateDimensions: defaults to Position.' },
       },
       required: ['command'],
     },
@@ -441,7 +472,7 @@ const TOOLS = [
       'is a real animatable property, so a bar that grows is a Size keyframe rather than a scale ' +
       'that stretches the artwork. Solids can only scale.\n\n' +
       'The response includes a `paths` map of matchName paths to every animatable property it ' +
-      'created - size, roundness, fill colour, stroke width, group transform - so you can drive ' +
+      'created - size, roundness, fill colour and opacity, stroke width, group position/scale/rotation/opacity - so you can drive ' +
       'them with ae_set or ae_animate without reconstructing the vector tree yourself.\n\n' +
       'addOperator adds the things that make a shape layer useful for motion graphics:\n' +
       '- trim: the draw-on. Animate End 0 to 100. Offsetting Start behind End gives a travelling dash.\n' +
@@ -470,8 +501,8 @@ const TOOLS = [
         innerRadius: { type: 'number', description: 'star only.' },
         vertices: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'path only: [[x,y], ...].' },
         closed: { type: 'boolean', description: 'path only. Default true.' },
-        fill: { description: 'RGBA 0-1 array, or false for no fill. Defaults to white.' },
-        stroke: { type: 'array', items: { type: 'number' }, description: 'RGBA 0-1. Omit for no stroke.' },
+        fill: { description: 'RGBA 0-1 array, or false for no fill. Defaults to white. AE ignores a shape colour\'s alpha, so alpha below 1 is written to Fill Opacity instead.' },
+        stroke: { type: 'array', items: { type: 'number' }, description: 'RGBA 0-1. Omit for no stroke. Alpha below 1 goes to Stroke Opacity.' },
         strokeWidth: { type: 'number' },
         position: { type: 'array', items: { type: 'number' } },
         layerId: { type: 'number', description: 'Required by the operator commands.' },
@@ -526,10 +557,18 @@ const TOOLS = [
       'ae_capture is for looking, not for output.\n\n' +
       'BLOCKING and potentially slow - a long comp can take minutes, and After Effects is ' +
       'unresponsive throughout. Render a short range first if you are unsure.\n\n' +
+      'AUDIO: every layer made from the same footage carries its audio, so a plate plus copies renders ' +
+      'the sound summed N times (and clipping). Switch the copies off with ae_layers setAudioEnabled ' +
+      '{enabled:false}; tree shows hasAudio/audioEnabled per layer.\n\n' +
       'Format is not directly settable in After Effects scripting, so it comes from an output ' +
       'module template. Run listTemplates to see what this machine has; "Lossless" and the H.264 ' +
       'presets are usually present. Any other queued items are disabled during the render and ' +
       'restored afterwards, so this never renders somebody else\'s queue.\n\n' +
+      'OUTPUT: a missing output folder is created. With no omTemplate the template follows the ' +
+      'extension (.mp4 -> H.264, .mov -> Lossless, .tif -> TIFF sequence); a template that would write ' +
+      'a different extension is an error rather than a silently renamed file. A job that produces no ' +
+      'file is reported in errors. Rendering never changes the project: batch removes its queue items ' +
+      'and restores paused ones even when a render fails.\n\n' +
       'batch takes N jobs and renders them in ONE pass - ad delivery is N comps by M formats, and ' +
       'one blocking call per output does not scale. queueInAME hands off to Media Encoder for real ' +
       'bitrate control, but note AME CANNOT export alpha: for RGB+Alpha use command render with an ' +
@@ -540,7 +579,7 @@ const TOOLS = [
         command: { type: 'string', enum: ['render', 'batch', 'queueInAME', 'listTemplates'] },
         compId: { type: 'number' },
         outputPath: { type: 'string', description: 'Absolute path with a media extension.' },
-        omTemplate: { type: 'string', description: 'Output module template name. Default: an H.264 preset.' },
+        omTemplate: { type: 'string', description: 'Output module template name. Default: chosen from the outputPath extension.' },
         rsTemplate: { type: 'string', description: 'Render settings template, e.g. "Best Settings".' },
         startTime: { type: 'number' },
         endTime: { type: 'number' },
@@ -665,7 +704,7 @@ const TOOLS = [
         command: { type: 'string', enum: ['expose', 'listExposed', 'exportMogrt'] },
         compId: { type: 'number' },
         layerId: { type: 'number' },
-        path: { type: 'array', items: { type: 'string' }, description: 'expose: matchName path to the property.' },
+        path: { type: 'array', items: PATH_SEGMENT, description: 'expose: matchName path to the property.' },
         name: { type: 'string', description: 'expose: display name shown to the editor. Default names are useless - set this.' },
         overwrite: { type: 'boolean' },
       },
@@ -684,16 +723,40 @@ const TOOLS = [
       properties: {
         command: {
           type: 'string',
-          enum: ['problems', 'reloadHost'],
+          enum: ['problems', 'reloadHost', 'effectEnums'],
           description:
             'Default problems. reloadHost re-reads the ExtendScript host from disk - CEP loads it ' +
             'once per extension start, so host edits are otherwise invisible until AE restarts.',
         },
         maxLayers: { type: 'number', description: 'Cap on layers scanned for expression errors. Default 400.' },
+        offset: { type: 'number', description: 'effectEnums (maintainers only, scratch project): first effect of the batch.' },
+        limit: { type: 'number', description: 'effectEnums: effects per batch. Default 25.' },
       },
     },
   },
 ];
+
+/*
+ * Tool schemas as they are on disk right now. Node loads this file once, so
+ * after a dev edit describe lagged until After Effects restarted, while the
+ * hot-reloaded host already accepted the new commands. Re-reading gives the
+ * current schema; source says which one was used. (A change to a Node-side
+ * handler still needs a restart - only the schema is re-read.)
+ */
+function liveTools() {
+  try {
+    const self = require.resolve('./tools.js');
+    const cached = require.cache[self];
+    delete require.cache[self];
+    try {
+      return { tools: require('./tools.js').TOOLS, source: 'disk' };
+    } finally {
+      if (cached) require.cache[self] = cached;
+    }
+  } catch (e) {
+    return { tools: TOOLS, source: 'memory' };
+  }
+}
 
 /**
  * @param {(op:string,args:object,timeoutMs?:number)=>Promise<object>} callHost
@@ -706,7 +769,7 @@ function createToolRegistry(callHost) {
    */
   // masks: a batched roto write builds hundreds of Shapes and keys them in one
   // host call, which can outlast the default ceiling on a large mask.
-  const LONG_OPS = { render: 30 * 60 * 1000, captureSequence: 5 * 60 * 1000, masks: 3 * 60 * 1000 };
+  const LONG_OPS = { render: 30 * 60 * 1000, captureSequence: 5 * 60 * 1000, masks: 3 * 60 * 1000, effectEnums: 5 * 60 * 1000 };
 
   async function host(op, args) {
     const res = await callHost(op, args, LONG_OPS[op]);
@@ -774,10 +837,11 @@ function createToolRegistry(callHost) {
       // The live schema, from this server. A client that cached tool
       // definitions at session start can still find new commands and args.
       if (a.command === 'describe') {
-        if (!a.tool) return textContent({ tools: TOOLS.map((t) => t.name), bridge: bridgeInfo() });
-        const def = TOOLS.find((t) => t.name === a.tool);
-        if (!def) return errorContent(`No tool named ${a.tool}. Known: ${TOOLS.map((t) => t.name).join(', ')}`);
-        return textContent({ ...def, bridge: bridgeInfo() });
+        const { tools, source } = liveTools();
+        if (!a.tool) return textContent({ tools: tools.map((t) => t.name), schemaSource: source, bridge: bridgeInfo() });
+        const def = tools.find((t) => t.name === a.tool);
+        if (!def) return errorContent(`No tool named ${a.tool}. Known: ${tools.map((t) => t.name).join(', ')}`);
+        return textContent({ ...def, schemaSource: source, bridge: bridgeInfo() });
       }
       const out = await host(a.command, a);
       // Lets a client notice a stale tool list: compare this with what it expects.
@@ -833,6 +897,7 @@ function createToolRegistry(callHost) {
     },
     ae_capture: capture,
     ae_diagnostics: async (a) => {
+      if (a.command === 'effectEnums') return textContent(await host('effectEnums', a));
       if (a.command !== 'reloadHost') return textContent(await host('problems', a));
       // Report a reload only if the host's load stamp actually changed. The old
       // implementation answered "reloaded: true" while reloading nothing.

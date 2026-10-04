@@ -25,6 +25,15 @@ function __mcp_coerceForProperty(p, value) {
     }
     if (vt === PropertyValueType.OneD || vt === PropertyValueType.LAYER_INDEX ||
         vt === PropertyValueType.MASK_INDEX) {
+        // A popup takes its menu label too: "On Transparent" instead of a guessed 2.
+        if (typeof value === "string" && isNaN(Number(value))) {
+            var opts = __mcp_enumOptions(p);
+            if (!opts) { throw new Error("expected a number - this parameter has no known option labels"); }
+            for (var oi = 0; oi < opts.length; oi++) {
+                if (opts[oi].toLowerCase() === value.toLowerCase()) { return oi + 1; }
+            }
+            throw new Error("no option '" + value + "' - options are: " + opts.join(" | "));
+        }
         var num = Number(value);
         if (isNaN(num)) { throw new Error("expected a number"); }
         return num;
@@ -36,7 +45,7 @@ function __mcp_coerceForProperty(p, value) {
         if (value && typeof value === "object") {
             if (value.text !== undefined) { td.text = String(value.text); }
             if (value.fontSize !== undefined) { td.fontSize = Number(value.fontSize); }
-            if (value.font !== undefined) { td.font = String(value.font); }
+            if (value.font !== undefined) { td.font = __mcp_resolveFont(String(value.font)); }
             if (value.fillColor !== undefined) { td.fillColor = value.fillColor; }
             if (value.tracking !== undefined) { td.tracking = Number(value.tracking); }
             if (value.leading !== undefined) { td.leading = Number(value.leading); }
@@ -73,6 +82,10 @@ var __mcp_mutateOps = {
         if (!writes.length) { throw new Error("set requires a non-empty writes array"); }
         var applied = [];
         var errors = [];
+        var warnings = [];
+        // Colours whose alpha AE ignores; the value that controls it lives next door.
+        var ALPHA_IGNORED = { "ADBE Vector Fill Color": "ADBE Vector Fill Opacity",
+                              "ADBE Vector Stroke Color": "ADBE Vector Stroke Opacity" };
 
         for (var i = 0; i < writes.length; i++) {
             var w = writes[i];
@@ -105,12 +118,21 @@ var __mcp_mutateOps = {
                     p.setValue(coerced);
                 }
                 applied.push({ index: i, layerId: w.layerId, path: w.path });
+                if (ALPHA_IGNORED.hasOwnProperty(p.matchName) && coerced.length > 3 && coerced[3] < 1) {
+                    var opPath = w.path.slice(0, w.path.length - 1).concat([ALPHA_IGNORED[p.matchName]]);
+                    warnings.push({ index: i, code: "alpha_ignored",
+                                    message: "AE ignores the alpha of " + p.matchName + " - it renders opaque. Set " +
+                                             ALPHA_IGNORED[p.matchName] + " (0-100) for transparency.",
+                                    opacityPath: opPath, suggestedOpacity: coerced[3] * 100 });
+                }
             } catch (e) {
                 var code = String(e).indexOf("No property") !== -1 ? "unknown_path" : "write_failed";
                 errors.push({ index: i, code: code, message: String(e), line: __mcp_line(e) });
             }
         }
-        return { appliedCount: applied.length, applied: applied, errors: errors };
+        var res = { appliedCount: applied.length, applied: applied, errors: errors };
+        if (warnings.length) { res.warnings = warnings; }
+        return res;
     },
 
     setExpression: function (args) {
@@ -318,6 +340,14 @@ var __mcp_mutateOps = {
         if (cmd === "rename")    { layer.name = String(args.name); return __mcp_layerSummary(layer); }
         if (cmd === "select")    { layer.selected = (args.selected !== false); return __mcp_layerSummary(layer); }
         if (cmd === "setEnabled"){ layer.enabled = (args.enabled !== false); return __mcp_layerSummary(layer); }
+        if (cmd === "setAudioEnabled") {
+            // Every copy of the same footage carries its audio, so N copies render N-fold summed sound.
+            var hasAudio = false;
+            try { hasAudio = layer.hasAudio; } catch (e) {}
+            if (!hasAudio) { throw new Error("Layer " + layer.id + " has no audio to switch"); }
+            layer.audioEnabled = (args.enabled !== false);
+            return __mcp_layerSummary(layer);
+        }
         if (cmd === "setLocked") { layer.locked = (args.locked !== false); return __mcp_layerSummary(layer); }
         if (cmd === "reparent")  {
             layer.parent = (args.parentLayerId === null) ? null : __mcp_layerById(args.parentLayerId);
@@ -417,6 +447,17 @@ var __mcp_mutateOps = {
             return String(v);
         }
         // maskIndex, else maskName, else the most recently added mask.
+        // moveTo invalidates the moved object, so hand back a fresh reference. Declared
+        // before use: ExtendScript does not reliably hoist nested function declarations.
+        function moveMask(mk, idx) {
+            var to = Number(idx);
+            if (isNaN(to) || to < 1 || to > parade.numProperties || to !== Math.floor(to)) {
+                throw new Error("index must be 1.." + parade.numProperties);
+            }
+            if (mk.propertyIndex !== to) { mk.moveTo(to); }
+            return parade.property(to);
+        }
+
         function pickMask() {
             var picked = null;
             if (args.maskIndex) { picked = parade.property(Number(args.maskIndex)); }
@@ -447,7 +488,23 @@ var __mcp_mutateOps = {
             if (args.feather !== undefined) {
                 m.property("ADBE Mask Feather").setValue([Number(args.feather), Number(args.feather)]);
             }
+            if (args.index !== undefined && args.index !== null) { m = moveMask(m, args.index); }
             return { layerId: layer.id, maskIndex: m.propertyIndex, name: m.name, mode: modeName(m.maskMode) };
+        }
+
+        /*
+         * Masks composite top to bottom, so ORDER is part of the result: an Add
+         * below a Subtract puts the subtracted area back. reorder moves one mask
+         * to a 1-based index; add takes the same index.
+         */
+        if (cmd === "reorder") {
+            var mv = pickMask();
+            if (args.index === undefined || args.index === null) { throw new Error("reorder needs index (1 = top)"); }
+            var from = mv.propertyIndex;
+            mv = moveMask(mv, args.index);
+            var order = [];
+            for (var oi = 1; oi <= parade.numProperties; oi++) { order.push(parade.property(oi).name); }
+            return { layerId: layer.id, name: mv.name, from: from, maskIndex: mv.propertyIndex, order: order };
         }
 
         if (cmd === "setRect") {
@@ -516,7 +573,28 @@ var __mcp_mutateOps = {
             var keys = args.keys;
             if (!keys || !keys.length) { throw new Error("setPathKeys needs a non-empty keys array: [{time, vertices}]"); }
             var started = new Date().getTime();
-            var sorted = keys.slice(0);
+            /*
+             * Key times are COMP seconds, because that is what AE's keyframe API
+             * takes. A tracker file indexes frames of the CLIP, so on a layer
+             * whose startTime was shifted (or stretched) those frames land in
+             * the wrong place. timeBase:"layer" maps layer time to comp time
+             * (startTime + t * stretch/100); timeOffset adds seconds either way.
+             */
+            var toLayer = (args.timeBase === "layer");
+            if (args.timeBase !== undefined && args.timeBase !== "comp" && !toLayer) {
+                throw new Error("timeBase must be \"comp\" (default) or \"layer\"");
+            }
+            var tOffset = Number(args.timeOffset || 0);
+            if (isNaN(tOffset)) { throw new Error("timeOffset must be a number of seconds"); }
+            var stretch = toLayer ? layer.stretch / 100 : 1, shift = (toLayer ? layer.startTime : 0) + tOffset;
+            var sorted = [];
+            for (var kk = 0; kk < keys.length; kk++) {
+                var src0 = keys[kk], kt0 = Number(src0.time);
+                if (src0.time === undefined || src0.time === null || isNaN(kt0)) {
+                    throw new Error("keys[" + kk + "] has no numeric time");
+                }
+                sorted.push({ time: shift + kt0 * stretch, vertices: src0.vertices, closed: src0.closed });
+            }
             sorted.sort(function (a, b) { return Number(a.time) - Number(b.time); });
 
             var pTimes = [], pShapes = [], oTimes = [], oVals = [];
@@ -652,6 +730,7 @@ var __mcp_mutateOps = {
             return { layerId: layer.id, maskIndex: km.propertyIndex, name: km.name,
                      pathKeys: pTimes.length, collapsedKeys: cTimes.length, opacityKeys: opacityKeys,
                      clearedPathKeys: clearedPathKeys, opacityNumKeys: opProp.numKeys,
+                     timeBase: toLayer ? "layer" : "comp", compTimeRange: [sorted[0].time, sorted[sorted.length - 1].time],
                      emptyFrames: empty, degenerateShapes: degenerate, hold: hold,
                      opacityRestoredAfterRange: restoredAfter,
                      numKeys: pathProp.numKeys, elapsedMs: new Date().getTime() - started };
@@ -737,7 +816,8 @@ var __mcp_mutateOps = {
             if (!(pf instanceof FolderItem)) { throw new Error("parentFolderId " + args.parentFolderId + " is not a folder"); }
             var nf = p.items.addFolder(String(args.name || "Folder"));
             if (pf !== p.rootFolder) { nf.parentFolder = pf; }
-            return { folderId: nf.id, name: nf.name, parentFolderId: nf.parentFolder.id };
+            // null for the root, as tree, import and createComp report it.
+            return { folderId: nf.id, name: nf.name, parentFolderId: (nf.parentFolder === p.rootFolder) ? null : nf.parentFolder.id };
         }
         if (cmd === "moveToFolder") {
             var tf2 = args.folderId ? __mcp_itemById(args.folderId) : p.rootFolder;

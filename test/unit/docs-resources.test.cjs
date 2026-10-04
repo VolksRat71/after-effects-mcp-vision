@@ -19,7 +19,7 @@ test('every advertised resource actually exists on disk', () => {
 /*
  * The packaged layout is <ext>/server/docs.js beside <ext>/docs/. Only the dev
  * layout (<repo>/docs, one level higher) used to be checked, so every release
- * answered all three resources with "file is missing" while the dev checkout
+ * answered every resource with "file is missing" while the dev checkout
  * looked fine. Build that packaged layout in a temp dir and read through it.
  */
 test('resources resolve in the packaged layout, not just a dev checkout', () => {
@@ -31,7 +31,7 @@ test('resources resolve in the packaged layout, not just a dev checkout', () => 
       fs.copyFileSync(path.join(__dirname, '..', '..', 'cep', 'server', f), path.join(ext, 'server', f));
     }
     fs.mkdirSync(path.join(ext, 'docs', 'illustrator'), { recursive: true });
-    for (const f of ['INSTALL.md', 'RECIPES.md', 'CAPABILITIES.md', 'illustrator/INSTALL.md', 'illustrator/RECIPES.md']) {
+    for (const f of ['INSTALL.md', 'RECIPES.md', 'CAPABILITIES.md', 'INTEGRATIONS.md', 'illustrator/INSTALL.md', 'illustrator/RECIPES.md']) {
       fs.copyFileSync(path.join(__dirname, '..', '..', 'docs', f), path.join(ext, 'docs', f));
     }
     const packaged = require(path.join(ext, 'server', 'docs.js'));
@@ -110,4 +110,24 @@ test('listResources does not leak absolute filesystem paths', () => {
   for (const r of listResources()) {
     assert.strictEqual(r.file, undefined);
   }
+});
+
+test('the integrations resource carries the adapter contract', () => {
+  const text = readResource('ae-vision://integrations').contents[0].text;
+  assert.match(text, /\/rpc/);
+  assert.match(text, /\.ae-mcp-vision\/token/, 'adapters must be told where the token lives');
+  assert.match(text, /forbidden_origin/, 'the no-Origin rule must be explicit, or an Electron renderer fails silently');
+  assert.match(text, /interpretationOverrides/);
+  assert.match(text, /frame 0/i, 'the MVP frame-mapping rule must stay documented');
+  assert.match(text, /time-remapped|time-stretched/i);
+  assert.match(text, /setPathKeys/);
+  assert.match(text, /keysPath/);
+  assert.match(text, /SAM UI/);
+  assert.match(text, /in development/i, 'the SAM UI adapter is not shipped; the doc must not claim it is');
+  assert.match(text, /media-inventory\.sample\.json/, 'the contract sample must be discoverable from the doc');
+});
+
+test('recipes and capabilities point at the integrations resource', () => {
+  assert.match(readResource('ae-vision://recipes').contents[0].text, /ae-vision:\/\/integrations/);
+  assert.match(readResource('ae-vision://capabilities').contents[0].text, /ae-vision:\/\/integrations/);
 });

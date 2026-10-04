@@ -386,6 +386,44 @@
             return { frames: got.join(","), rerunCleared: again.clearedPathKeys, afterDrop: shape.numKeys };
         });
 
+        record("setPathKeys timeBase:layer maps clip time through startTime and stretch", function () {
+            var id = call("layers", { compId: scratchCompId, command: "createSolid", color: [1,1,1], name: "shifted", width: 100, height: 100 }).id;
+            var L = __mcp_layerById(id);
+            L.startTime = 2; L.stretch = 200;
+            call("masks", { layerId: id, command: "add" });
+            var sq = [[10,10],[90,10],[90,90],[10,90]];
+            var r = call("masks", { layerId: id, command: "setPathKeys", timeBase: "layer", timeOffset: 0.5, hold: true,
+                                    keys: [{ time: 0, vertices: sq }, { time: 1, vertices: sq }] });
+            var shape = L.property("ADBE Mask Parade").property(1).property("ADBE Mask Shape");
+            // clip 0 -> 2 + 0*2 + 0.5 = 2.5; clip 1 -> 2 + 1*2 + 0.5 = 4.5
+            if (Math.abs(shape.keyTime(1) - 2.5) > 1e-6 || Math.abs(shape.keyTime(2) - 4.5) > 1e-6) {
+                throw new Error("keys at " + shape.keyTime(1) + ", " + shape.keyTime(2) + " - wanted 2.5, 4.5");
+            }
+            var times = [shape.keyTime(1), shape.keyTime(2)];
+            L.stretch = 100;   // keys move with the stretch, so read them first
+            return { keyTimes: times, reported: r.compTimeRange };
+        });
+
+        /*
+         * Effect popup parameters: a guessed integer can silently pick the wrong
+         * mode, so reads carry the label and writes accept it.
+         */
+        record("popup params read as {value, label, options} and take a label on write", function () {
+            var id = call("layers", { compId: scratchCompId, command: "createSolid", color: [1,1,1], name: "popup", width: 100, height: 100 }).id;
+            call("effects", { layerId: id, command: "apply", matchName: "ADBE Stroke" });
+            var path = ["ADBE Effect Parade", "ADBE Stroke", "ADBE Stroke-0007"];
+            var w = call("set", { writes: [{ layerId: id, path: path, value: "on transparent" },
+                                           { layerId: id, path: path, value: "Sideways" }] });
+            if (w.appliedCount !== 1 || w.errors.length !== 1 || w.errors[0].message.indexOf("Reveal Original Image") === -1) {
+                throw new Error("label write or bad-label error wrong: " + w.errors.length + " errors");
+            }
+            var r = call("propertyValues", { layerId: id, paths: [path] }).values[0];
+            if (r.value !== 2 || r.label !== "On Transparent" || !r.options || r.options.length !== 3) {
+                throw new Error("read back value " + r.value + " label " + r.label);
+            }
+            return { value: r.value, label: r.label, options: r.options.length };
+        });
+
         record("project hygiene: rename an item, create folders, move items into them", function () {
             var comp = call("project", { command: "createComp", name: "hygiene", width: 64, height: 64, duration: 1, frameRate: 24 });
             var r = call("project", { command: "renameItem", itemId: comp.id, name: "hygiene renamed" });
@@ -430,6 +468,224 @@
             if (!msg || msg.indexOf("would overwrite") < 0 || msg.indexOf("overwrite:true") < 0) { throw new Error("no refusal with a hint: " + JSON.stringify(r).slice(0, 200)); }
             out.remove();
             return { refused: true, hint: msg.slice(0, 60) };
+        });
+
+        /*
+         * A batch that hit a render error used to leave its items queued; they
+         * then claimed the next batch's output paths and that job wrote nothing.
+         */
+        record("batch render: folders created, extension honoured, nothing left queued after a failure", function () {
+            var comp = call("project", { command: "createComp", name: "batchout", width: 16, height: 16, duration: 0.1, frameRate: 24 });
+            var rq = app.project.renderQueue, before = rq.numItems;
+            var dir = Folder.temp.fsName + "/mcp_batch_" + new Date().getTime();
+            var r = call("render", { command: "batch", jobs: [
+                { compId: comp.id, outputPath: dir + "/new/sub/a.mp4" },                        // folder made, H.264 by extension
+                { compId: comp.id, outputPath: dir + "/b.mp4", omTemplate: "Lossless" },         // template writes .mov
+                { compId: comp.id, outputPath: dir + "/c.xyz" } ] });                           // not a media extension
+            if (rq.numItems !== before) { throw new Error("queue grew from " + before + " to " + rq.numItems); }
+            var a = new File(dir + "/new/sub/a.mp4");
+            if (!a.exists || a.length === 0) { throw new Error("a.mp4 was not written into the new folder"); }
+            var byIndex = {};
+            for (var e = 0; e < r.errors.length; e++) { byIndex[r.errors[e].index] = r.errors[e].message; }
+            if (!byIndex[1] || byIndex[1].indexOf("writes .mov") < 0) { throw new Error("no extension-mismatch error: " + byIndex[1]); }
+            if (!byIndex[2]) { throw new Error("bad extension was not refused"); }
+            if (new File(dir + "/b.mov").exists) { throw new Error("a .mov was written for an .mp4 path"); }
+            a.remove();
+            return { rendered: r.rendered.length, errors: r.errors.length, queue: rq.numItems };
+        });
+
+        /*
+         * media: the footage inventory external adapters read. The clip is
+         * rendered here by AE itself, so the suite needs no fixture media and
+         * no ffmpeg; everything written to Folder.temp is removed again.
+         */
+        var mediaClip = null, mediaItemId = null;
+        function mediaFind(res, list, id) {
+            var arr = res[list] || [];
+            for (var i = 0; i < arr.length; i++) { if (arr[i].id === id) { return arr[i]; } }
+            return null;
+        }
+
+        record("media lists a rendered clip with its path, size, timing and interpretation", function () {
+            var comp = call("project", { command: "createComp", name: "mediasrc", width: 64, height: 36, duration: 0.5, frameRate: 24 });
+            __mcp_compById(comp.id).layers.addSolid([0.9, 0.2, 0.1], "m", 64, 36, 1);
+            mediaClip = new File(Folder.temp.fsName + "/mcp_media_" + new Date().getTime() + ".mp4");
+            var rr = call("render", { command: "batch", jobs: [{ compId: comp.id, outputPath: mediaClip.fsName }] });
+            if (!mediaClip.exists || mediaClip.length === 0) { throw new Error("clip was not rendered: " + JSON.stringify(rr.errors)); }
+            mediaItemId = app.project.importFile(new ImportOptions(mediaClip)).id;
+
+            var res = call("media", {});
+            var m = mediaFind(res, "items", mediaItemId);
+            if (!m) { throw new Error("rendered clip not listed as eligible"); }
+            if (m.path !== mediaClip.fsName) { throw new Error("path " + m.path); }
+            if (m.width !== 64 || m.height !== 36 || m.pixelAspect !== 1) { throw new Error("size " + m.width + "x" + m.height + " par " + m.pixelAspect); }
+            if (Math.abs(m.frameRate - 24) > 1e-3 || m.frames !== 12) { throw new Error("timing " + m.frameRate + " fps, " + m.frames + " frames"); }
+            if (m.missing !== false || m.useProxy !== false || m.interpretationOverrides.length !== 0) { throw new Error("state " + JSON.stringify(m)); }
+            if (m.interpretation.conformFrameRate !== 0 || m.interpretation.fieldSeparation !== "OFF" ||
+                m.interpretation.removePulldown !== "OFF" || m.interpretation.loop !== 1) {
+                throw new Error("interpretation " + JSON.stringify(m.interpretation));
+            }
+            if (m.interpretation.hasAlpha === false && m.interpretation.alphaMode !== null) { throw new Error("alphaMode without alpha"); }
+            if (m.eligible !== undefined || m.still !== undefined) { throw new Error("eligible records should not carry constant fields"); }
+            if (!res.project || res.project.numItems !== app.project.numItems || typeof res.project.dirty !== "boolean") { throw new Error("project identity missing"); }
+            if (res.ineligible !== undefined) { throw new Error("ineligible listed without includeIneligible"); }
+            // Which interpretation reads the DOM answered, for the record.
+            var keys = [];
+            for (var k in m.interpretation) { if (m.interpretation.hasOwnProperty(k)) { keys.push(k); } }
+            return { id: m.id, frames: m.frames, interpretationFields: keys.join(",") };
+        });
+
+        record("media ids survive a move into a folder", function () {
+            if (!mediaItemId) { throw new Error("no clip from the previous case"); }
+            var folder = call("project", { command: "createFolder", name: "__mcp_media_folder" });
+            call("project", { command: "moveToFolder", itemIds: [mediaItemId], folderId: folder.folderId });
+            var res = call("media", {});
+            var m = mediaFind(res, "items", mediaItemId), n = 0;
+            for (var i = 0; i < res.items.length; i++) { if (res.items[i].path === mediaClip.fsName) { n++; } }
+            if (!m || n !== 1) { throw new Error("clip lost or duplicated after the move: " + n); }
+            if (m.parentFolderId !== folder.folderId) { throw new Error("parentFolderId " + m.parentFolderId); }
+            return { id: m.id, parentFolderId: m.parentFolderId };
+        });
+
+        record("media flags interpretation overrides: conform, loop, proxy", function () {
+            if (!mediaItemId) { throw new Error("no clip from the previous case"); }
+            var it = __mcp_itemById(mediaItemId), src = it.mainSource;
+            var png = new File(Folder.temp.fsName + "/mcp_media_proxy_" + new Date().getTime() + ".png");
+            var pc = app.project.items.addComp("mediaproxy", 64, 36, 1, 1, 24);
+            pc.layers.addSolid([0, 1, 0], "p", 64, 36, 1);
+            pc.saveFrameToPng(0, png);
+            for (var w = 0; w < 200 && !(png.exists && png.length > 60); w++) { $.sleep(25); }
+            $.sleep(150);
+            pc.remove();
+            try {
+                src.conformFrameRate = 30; src.loop = 2; it.setProxy(png);
+                var m = mediaFind(call("media", {}), "items", mediaItemId);
+                var o = m.interpretationOverrides.join(",");
+                if (o !== "conformFrameRate,loop,useProxy") { throw new Error("overrides " + o); }
+                if (m.useProxy !== true || m.proxyPath !== png.fsName) { throw new Error("proxy " + m.useProxy + " " + m.proxyPath); }
+                if (m.interpretation.conformFrameRate !== 30 || m.interpretation.loop !== 2) { throw new Error("interp " + JSON.stringify(m.interpretation)); }
+                return { overrides: o, frames: m.frames, frameRate: m.frameRate };
+            } finally {
+                try { src.conformFrameRate = 0; src.loop = 1; it.useProxy = false; } catch (e) {}
+                try { png.remove(); } catch (e) {}
+            }
+        });
+
+        record("media excludes solids, stills and placeholders, and names them with includeIneligible", function () {
+            var png = new File(Folder.temp.fsName + "/mcp_media_still_" + new Date().getTime() + ".png");
+            var sc = app.project.items.addComp("mediastill", 32, 32, 1, 1, 24);
+            var solidItemId = sc.layers.addSolid([0, 0, 1], "mediasolid", 32, 32, 1).source.id;
+            sc.saveFrameToPng(0, png);
+            for (var w = 0; w < 200 && !(png.exists && png.length > 60); w++) { $.sleep(25); }
+            $.sleep(150);
+            var stillId = app.project.importFile(new ImportOptions(png)).id;
+            var phId = app.project.importPlaceholder("__mcp_media_ph", 32, 32, 24, 1).id;
+            try {
+                var plain = call("media", {});
+                if (mediaFind(plain, "items", stillId) || mediaFind(plain, "items", solidItemId) || mediaFind(plain, "items", phId)) {
+                    throw new Error("an ineligible item was listed as eligible");
+                }
+                var all = call("media", { includeIneligible: true });
+                var st = mediaFind(all, "ineligible", stillId), so = mediaFind(all, "ineligible", solidItemId), ph = mediaFind(all, "ineligible", phId);
+                if (!st || st.reason !== "still") { throw new Error("still: " + JSON.stringify(st)); }
+                if (!so || so.reason !== "solid") { throw new Error("solid: " + JSON.stringify(so)); }
+                if (!ph || ph.reason !== "placeholder") { throw new Error("placeholder: " + JSON.stringify(ph)); }
+                var c = all.counts;
+                if (c.eligible !== all.items.length || c.ineligible !== all.ineligible.length || c.footage !== c.eligible + c.ineligible) {
+                    throw new Error("counts " + JSON.stringify(c));
+                }
+                return { still: st.reason, solid: so.reason, placeholder: ph.reason, counts: c };
+            } finally {
+                try { png.remove(); } catch (e) {}
+            }
+        });
+
+        record("media keeps a clip whose file was deleted, marked missing", function () {
+            if (!mediaClip) { throw new Error("no clip from the previous case"); }
+            var copy = new File(Folder.temp.fsName + "/mcp_media_gone_" + new Date().getTime() + ".mp4");
+            if (!mediaClip.copy(copy.fsName)) { throw new Error("could not copy the clip"); }
+            var goneId = app.project.importFile(new ImportOptions(copy)).id;
+            copy.remove();
+            // AE keeps footageMissing false until the project is reopened; the
+            // op must notice the file itself.
+            var res = call("media", {});
+            var m = mediaFind(res, "items", goneId);
+            if (!m) { throw new Error("deleted clip was dropped instead of reported"); }
+            if (m.missing !== true || m.path !== copy.fsName) { throw new Error("missing " + m.missing + " path " + m.path); }
+            if (res.counts.missing < 1) { throw new Error("counts.missing " + res.counts.missing); }
+            var live = mediaFind(res, "items", mediaItemId);
+            if (!live || live.missing !== false) { throw new Error("the intact clip was marked missing too"); }
+            return { id: goneId, missing: m.missing, footageMissing: __mcp_itemById(goneId).footageMissing, frames: m.frames };
+        });
+
+        record("media opens no undo group", function () {
+            // Read-only ops must not be in __mcp_mutating, or every poll from an
+            // adapter would push an entry onto the user's undo stack.
+            if (__mcp_wantsUndo("media", {})) { throw new Error("media is marked mutating"); }
+            try { mediaClip.remove(); } catch (e) {}
+            return true;
+        });
+
+        record("shape colour alpha becomes Opacity on create, and ae_set warns that AE ignores it", function () {
+            var sh = call("shapes", { compId: scratchCompId, kind: "rect", width: 40, height: 40, name: "alpha", fill: [0, 0, 0, 0.7] });
+            var L = __mcp_layerById(sh.id);
+            var fop = __mcp_propByPath(L, sh.paths.fillOpacity).value;
+            if (Math.abs(fop - 70) > 1e-3) { throw new Error("Fill Opacity is " + fop + ", wanted 70"); }
+            var w = call("set", { writes: [{ layerId: sh.id, path: sh.paths.fillColor, value: [1, 0, 0, 0.5] }] });
+            if (!w.warnings || w.warnings[0].code !== "alpha_ignored" || Math.abs(w.warnings[0].suggestedOpacity - 50) > 1e-3) {
+                throw new Error("no alpha_ignored warning: " + JSON.stringify(w).slice(0, 200));
+            }
+            return { fillOpacity: fop, warning: w.warnings[0].code };
+        });
+
+        record("masks: add takes an index and reorder moves a mask, so an add can sit above the holes", function () {
+            var id = call("layers", { compId: scratchCompId, command: "createSolid", color: [1,1,1], name: "order", width: 100, height: 100 }).id;
+            call("masks", { layerId: id, command: "add", name: "body", mode: "add" });
+            call("masks", { layerId: id, command: "add", name: "hole", mode: "subtract" });
+            var a = call("masks", { layerId: id, command: "add", name: "arm", mode: "add", index: 2 });
+            if (a.maskIndex !== 2) { throw new Error("indexed add landed at " + a.maskIndex); }
+            var r = call("masks", { layerId: id, command: "reorder", maskName: "hole", index: 3 });
+            if (r.order.join(",") !== "body,arm,hole") { throw new Error("order " + r.order.join(",")); }
+            var bad = expectFail("masks", { layerId: id, command: "reorder", maskName: "hole", index: 9 }, "op_failed");
+            return { order: r.order.join(","), from: r.from };
+        });
+
+        record("diagnostics finds an expression error deep inside a shape layer", function () {
+            var sh = call("shapes", { compId: scratchCompId, kind: "rect", width: 20, height: 20, name: "deepexpr" });
+            var op = sh.paths.fillColor.slice(0, sh.paths.fillColor.length - 1).concat(["ADBE Vector Fill Opacity"]);
+            try { call("setExpression", { writes: [{ layerId: sh.id, path: op, expression: "notDefinedAnywhere * 2" }] }); } catch (e) {}
+            var d = call("problems", {});
+            var found = false;
+            var all = d.expressionErrors.concat(d.disabledExpressions || []);
+            for (var i = 0; i < all.length; i++) { if (all[i].layerId === sh.id) { found = true; } }
+            // clear it so later cases see a healthy project
+            call("setExpression", { writes: [{ layerId: sh.id, path: op, expression: "" }] });
+            if (!found) { throw new Error("problems missed the fill-opacity expression error; scanned " + d.scanned.properties + " properties"); }
+            return { errors: d.expressionErrors.length, disabled: (d.disabledExpressions || []).length, properties: d.scanned.properties };
+        });
+
+        record("summaries and reads: root folder is null, groups are not properties, alpha mapping and text fields reported", function () {
+            var f = call("project", { command: "createFolder", name: "rootcheck" });
+            if (f.parentFolderId !== null) { throw new Error("root folder parentFolderId " + f.parentFolderId); }
+            call("project", { command: "deleteItem", itemId: f.folderId });
+
+            var sh = call("shapes", { compId: scratchCompId, kind: "rect", width: 20, height: 20, name: "leafpaths", fill: [0, 0, 0, 0.5] });
+            if (sh.paths.groupTransform || !sh.paths.groupPosition) { throw new Error("create still lists the transform group"); }
+            if (!sh.warnings || sh.warnings[0].code !== "alpha_mapped") { throw new Error("alpha mapping was silent"); }
+            var grpPath = sh.paths.groupPosition.slice(0, sh.paths.groupPosition.length - 1);
+            var pv = call("propertyValues", { layerId: sh.id, paths: [grpPath, sh.paths.groupPosition] });
+            if (pv.errors.length !== 1 || pv.errors[0].code !== "not_a_property" || pv.values.length !== 1) {
+                throw new Error("group read: " + pv.errors.length + " errors, " + pv.values.length + " values");
+            }
+
+            var tl = call("layers", { compId: scratchCompId, command: "createText", text: "fields" });
+            call("set", { writes: [{ layerId: tl.id, path: ["ADBE Text Properties", "ADBE Text Document"],
+                                     value: { justification: "center", tracking: 25, fillColor: [1, 0, 0] } }] });
+            var td = call("propertyValues", { layerId: tl.id, paths: [["ADBE Text Properties", "ADBE Text Document"]] }).values[0].value;
+            if (td.justification !== "center" || td.tracking !== 25 || !td.fillColor || td.fillColor[0] !== 1) {
+                throw new Error("text read " + JSON.stringify(td));
+            }
+            return { folderParent: f.parentFolderId, groupError: pv.errors[0].code, justification: td.justification };
         });
 
         record("setEase applies temporal easing sized to the property", function () {

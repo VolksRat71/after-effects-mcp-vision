@@ -31,6 +31,85 @@ function __mcp_colorArg(c, fallback) {
     return out;
 }
 
+/*
+ * A render destination: needs a media extension, refuses to overwrite unless
+ * asked, and creates a missing parent folder - AE fails the whole queue on one.
+ * Existing files are removed only after output settings pass preflight.
+ */
+function __mcp_renderTarget(outPath, overwrite) {
+    if (!outPath) { throw new Error("outputPath is required"); }
+    if (!/\.(mov|mp4|m4v|avi|mxf|png|tif|tiff|jpg|jpeg|psd|aif|aiff|wav|mp3)$/i.test(outPath)) {
+        throw new Error("outputPath needs a media extension (mov, mp4, png, tif, ...): " + outPath);
+    }
+    var f = new File(outPath);
+    if (f.exists) {
+        if (!overwrite) { throw new Error("would overwrite " + outPath + " - pass overwrite:true"); }
+    }
+    if (!f.parent.exists && !f.parent.create()) { throw new Error("could not create folder " + f.parent.fsName); }
+    return f;
+}
+
+/*
+ * Output module for a destination. With no omTemplate the template follows
+ * the extension; AE otherwise keeps the template's own container and silently
+ * rewrites the extension (an .mp4 path became a 1.2 GB lossless .mov). If the
+ * template's file does not end in the extension asked for, that is an error.
+ */
+// Only templates AE ships by default (checked on 26.0); anything else needs omTemplate.
+var __MCP_OM_BY_EXT = { mp4: "H.264 - Match Render Settings - 15 Mbps", m4v: "H.264 - Match Render Settings - 15 Mbps",
+                        mov: "Lossless", tif: "TIFF Sequence with Alpha", tiff: "TIFF Sequence with Alpha",
+                        psd: "Photoshop", aif: "AIFF 48kHz", aiff: "AIFF 48kHz" };
+function __mcp_applyOutput(om, file, omTemplate) {
+    var ext = file.name.replace(/^.*\./, "").toLowerCase();
+    var tpl = omTemplate ? String(omTemplate) : __MCP_OM_BY_EXT[ext];
+    if (!tpl) { throw new Error("no default output template for ." + ext + " - pass omTemplate (see ae_render listTemplates)"); }
+    om.applyTemplate(tpl);
+    om.file = file;
+    var got = "";
+    try { got = om.file.name.replace(/^.*\./, "").toLowerCase(); } catch (e) {}
+    if (got && got !== ext && !(ext === "tiff" && got === "tif")) {
+        throw new Error("output template '" + tpl + "' writes ." + got + ", not ." + ext +
+                        " - pick an omTemplate that makes ." + ext + " or change the extension");
+    }
+    // AE accepts a plain .tif destination but then fails rendering it. Sequence
+    // modules require a frame placeholder even when the extension is already canonical.
+    var sequence = /sequence/i.test(tpl);
+    try { sequence = sequence || /sequence/i.test(String(om.getSettings(GetSettingsFormat.STRING)["Format"])); } catch (e2) {}
+    if (sequence && !/\[#+\]/.test(om.file.fsName)) {
+        om.file = new File(om.file.fsName.replace(/(\.[^.]*)$/, "_[#####]$1"));
+    }
+    return new File(om.file.fsName);
+}
+
+// Resolve AE's sequence placeholder against disk. Use fsName: File.name URI-encodes
+// the brackets, and AE may canonicalize both the extension and sequence suffix.
+function __mcp_renderFiles(file) {
+    var token = /\[#+\]/.exec(file.fsName);
+    if (!token) { return file.exists ? [file] : []; }
+    var escapeRE = function (s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); };
+    var re = new RegExp("^" + escapeRE(file.fsName.slice(0, token.index)) + "-?[0-9]+" +
+                        escapeRE(file.fsName.slice(token.index + token[0].length)) + "$");
+    var entries = file.parent.getFiles(), files = [];
+    for (var i = 0; i < entries.length; i++) {
+        if (entries[i] instanceof File && re.test(entries[i].fsName)) { files.push(entries[i]); }
+    }
+    return files;
+}
+
+function __mcp_prepareRenderFiles(file, overwrite) {
+    var files = __mcp_renderFiles(file);
+    if (files.length && !overwrite) { throw new Error("would overwrite " + file.fsName + " - pass overwrite:true"); }
+    for (var i = 0; i < files.length; i++) {
+        if (!files[i].remove()) { throw new Error("could not remove existing output " + files[i].fsName); }
+    }
+}
+
+function __mcp_renderFileInfo(file) {
+    var files = __mcp_renderFiles(file), bytes = 0;
+    for (var i = 0; i < files.length; i++) { bytes += files[i].length; }
+    return { exists: files.length > 0, bytes: bytes, fileCount: files.length };
+}
+
 var __mcp_buildOps = {
 
     /*
@@ -206,16 +285,27 @@ var __mcp_buildOps = {
         }
 
         var idx = 2;
-        var fillIdx = null, strokeIdx = null;
+        var fillIdx = null, strokeIdx = null, shapeWarnings = [];
         if (args.fill !== false) {
             contents.addProperty("ADBE Vector Graphic - Fill");
-            contents.property(idx).property("ADBE Vector Fill Color").setValue(__mcp_colorArg(args.fill, [1, 1, 1, 1]));
+            var fc = __mcp_colorArg(args.fill, [1, 1, 1, 1]);
+            contents.property(idx).property("ADBE Vector Fill Color").setValue(fc);
+            // AE ignores a shape colour's alpha; transparency is the separate Opacity.
+            if (fc[3] < 1) {
+                contents.property(idx).property("ADBE Vector Fill Opacity").setValue(fc[3] * 100);
+                shapeWarnings.push({ code: "alpha_mapped", message: "fill alpha " + fc[3] + " written to Fill Opacity " + (fc[3] * 100) + " - AE ignores a shape colour's alpha" });
+            }
             fillIdx = idx; idx++;
         }
         if (args.stroke) {
             contents.addProperty("ADBE Vector Graphic - Stroke");
             var st = contents.property(idx);
-            st.property("ADBE Vector Stroke Color").setValue(__mcp_colorArg(args.stroke, [0, 0, 0, 1]));
+            var sc = __mcp_colorArg(args.stroke, [0, 0, 0, 1]);
+            st.property("ADBE Vector Stroke Color").setValue(sc);
+            if (sc[3] < 1) {
+                st.property("ADBE Vector Stroke Opacity").setValue(sc[3] * 100);
+                shapeWarnings.push({ code: "alpha_mapped", message: "stroke alpha " + sc[3] + " written to Stroke Opacity " + (sc[3] * 100) + " - AE ignores a shape colour's alpha" });
+            }
             st.property("ADBE Vector Stroke Width").setValue(Number(args.strokeWidth || 2));
             strokeIdx = idx; idx++;
         }
@@ -224,19 +314,34 @@ var __mcp_buildOps = {
             sh.property("ADBE Transform Group").property("ADBE Position").setValue([Number(args.position[0]), Number(args.position[1])]);
         }
 
-        var base = ["ADBE Root Vectors Group", groupName, "ADBE Vectors Group"];
-        var paths = { groupTransform: ["ADBE Root Vectors Group", groupName, "ADBE Vector Transform Group"] };
+        /*
+         * Groups are addressed by INDEX in returned paths, not by display name.
+         * AE would not resolve a long group name it had just been given
+         * (a name with a colon and spaces), so the paths this call handed back failed in
+         * ae_set; an index resolves whatever the group is called.
+         */
+        var base = ["ADBE Root Vectors Group", grp.propertyIndex, "ADBE Vectors Group"];
+        // Leaf properties only: every entry here is something ae_set or ae_animate can write.
+        var gt = ["ADBE Root Vectors Group", grp.propertyIndex, "ADBE Vector Transform Group"];
+        var paths = { groupPosition: gt.concat(["ADBE Vector Position"]), groupAnchor: gt.concat(["ADBE Vector Anchor"]),
+                      groupScale: gt.concat(["ADBE Vector Scale"]), groupRotation: gt.concat(["ADBE Vector Rotation"]),
+                      groupOpacity: gt.concat(["ADBE Vector Group Opacity"]) };
         if (sizeMatch) { paths.size = base.concat([geomMatch, sizeMatch]); }
         if (kind === "rect") { paths.roundness = base.concat([geomMatch, "ADBE Vector Rect Roundness"]); }
         if (kind === "path") { paths.path = base.concat([geomMatch, "ADBE Vector Shape"]); }
-        if (fillIdx) { paths.fillColor = base.concat(["ADBE Vector Graphic - Fill", "ADBE Vector Fill Color"]); }
+        if (fillIdx) {
+            paths.fillColor = base.concat(["ADBE Vector Graphic - Fill", "ADBE Vector Fill Color"]);
+            paths.fillOpacity = base.concat(["ADBE Vector Graphic - Fill", "ADBE Vector Fill Opacity"]);
+        }
         if (strokeIdx) {
             paths.strokeColor = base.concat(["ADBE Vector Graphic - Stroke", "ADBE Vector Stroke Color"]);
+            paths.strokeOpacity = base.concat(["ADBE Vector Graphic - Stroke", "ADBE Vector Stroke Opacity"]);
             paths.strokeWidth = base.concat(["ADBE Vector Graphic - Stroke", "ADBE Vector Stroke Width"]);
         }
         var summary = __mcp_layerSummary(sh);
         summary.kind = kind;
         summary.paths = paths;
+        if (shapeWarnings.length) { summary.warnings = shapeWarnings; }
         return summary;
     },
 
@@ -318,10 +423,11 @@ var __mcp_buildOps = {
 
             // Hand back matchName paths so ae_set / ae_animate can drive it.
             var base = [];
-            if (scope === "layer") { base = ["ADBE Root Vectors Group", added.name]; }
+            // By index, not display name: see the note in shapes create.
+            if (scope === "layer") { base = ["ADBE Root Vectors Group", added.propertyIndex]; }
             else {
-                base = ["ADBE Root Vectors Group", root.property(args.groupIndex || 1).name,
-                        "ADBE Vectors Group", added.name];
+                base = ["ADBE Root Vectors Group", Number(args.groupIndex || 1),
+                        "ADBE Vectors Group", added.propertyIndex];
             }
             var paths = {};
             for (var q = 1; q <= added.numProperties; q++) {
@@ -374,8 +480,8 @@ var __mcp_buildOps = {
             var dpaths = {};
             for (var q = 1; q <= dashes.numProperties; q++) {
                 dpaths[dashes.property(q).name] = ["ADBE Root Vectors Group",
-                    root.property(Number(args.groupIndex || 1)).name, "ADBE Vectors Group",
-                    stroke.name, "ADBE Vector Stroke Dashes", dashes.property(q).matchName];
+                    Number(args.groupIndex || 1), "ADBE Vectors Group",
+                    stroke.propertyIndex, "ADBE Vector Stroke Dashes", dashes.property(q).matchName];
             }
             return { layerId: layer.id, elements: dashes.numProperties, paths: dpaths };
         }
@@ -702,70 +808,70 @@ var __mcp_buildOps = {
             /*
              * Ad delivery is N comps x M formats. One blocking call per output
              * means N*M round trips; this queues everything and renders once.
+             *
+             * Everything this call adds is removed, and everything it paused is
+             * restored, in a finally - a render error (a missing folder) used to
+             * leave its items queued, and they then fought the next batch for
+             * the same output path, so that job produced no file.
              */
             var jobs = args.jobs || [];
             if (!jobs.length) { throw new Error("batch requires a jobs array"); }
 
+            for (var lq = rq.numItems; lq >= 1; lq--) {
+                try { if (rq.item(lq).comment === "[MCP batch]") { rq.item(lq).remove(); } } catch (e) {}
+            }
             var pausedB = [];
             for (var q = 1; q <= rq.numItems; q++) {
-                if (rq.item(q).render) { pausedB.push(q); rq.item(q).render = false; }
+                if (rq.item(q).render) { pausedB.push(rq.item(q)); rq.item(q).render = false; }
             }
-            var added = [], failures = [];
-            for (var j = 0; j < jobs.length; j++) {
-                try {
-                    var job = jobs[j];
-                    var jc = __mcp_compById(job.compId);
-                    var jf = new File(String(job.outputPath));
-                    // Per job, or for the whole batch. Only the batch-level flag was
-                    // honoured before, and the job schema had no field for it.
-                    var jobOverwrite = (job.overwrite === true) || (args.overwrite === true);
-                    if (jf.exists && !jobOverwrite) {
-                        throw new Error("would overwrite " + job.outputPath + " - pass overwrite:true on the job or the batch");
+            var added = [], failures = [], results = [];
+            try {
+                for (var j = 0; j < jobs.length; j++) {
+                    var ji = null;
+                    try {
+                        var job = jobs[j];
+                        var jc = __mcp_compById(job.compId);
+                        var jf = __mcp_renderTarget(String(job.outputPath || ""), (job.overwrite === true) || (args.overwrite === true));
+                        ji = rq.items.add(jc);
+                        if (job.rsTemplate) { ji.applyTemplate(String(job.rsTemplate)); }
+                        jf = __mcp_applyOutput(ji.outputModule(1), jf, job.omTemplate);
+                        __mcp_prepareRenderFiles(jf, (job.overwrite === true) || (args.overwrite === true));
+                        ji.comment = "[MCP batch]";
+                        added.push({ index: j, compId: jc.id, outputPath: jf.fsName, item: ji });
+                    } catch (e) {
+                        if (ji) { try { ji.remove(); } catch (e2) {} }
+                        failures.push({ index: j, message: String(e) });
                     }
-                    // Remove the old file so the post-render check reports THIS render.
-                    if (jf.exists) { jf.remove(); }
-                    var ji = rq.items.add(jc);
-                    if (job.rsTemplate) { ji.applyTemplate(String(job.rsTemplate)); }
-                    var jm = ji.outputModule(1);
-                    jm.applyTemplate(String(job.omTemplate || "Lossless"));
-                    jm.file = jf;
-                    ji.comment = "[MCP batch]";
-                    added.push({ index: j, compId: jc.id, outputPath: jf.fsName, item: ji });
-                } catch (e) {
-                    failures.push({ index: j, message: String(e) });
                 }
-            }
-
-            var results = [];
-            if (added.length) {
-                var t0 = new Date().getTime();
-                rq.render();
-                for (var a = 0; a < added.length; a++) {
-                    var f2 = new File(added[a].outputPath);
-                    results.push({ index: added[a].index, compId: added[a].compId,
-                                   outputPath: added[a].outputPath,
-                                   done: (added[a].item.status === RQItemStatus.DONE),
-                                   exists: f2.exists, bytes: f2.exists ? f2.length : 0 });
+                if (added.length) {
+                    var t0 = new Date().getTime();
+                    try { rq.render(); }
+                    catch (re) { failures.push({ index: null, message: "render stopped: " + String(re) }); }
+                    for (var a = 0; a < added.length; a++) {
+                        var f2 = __mcp_renderFileInfo(new File(added[a].outputPath));
+                        var done = false;
+                        try { done = (added[a].item.status === RQItemStatus.DONE); } catch (e3) {}
+                        var rec = { index: added[a].index, compId: added[a].compId, outputPath: added[a].outputPath,
+                                    done: done, exists: f2.exists, bytes: f2.bytes, fileCount: f2.fileCount };
+                        results.push(rec);
+                        if (!done || !f2.exists) {
+                            failures.push({ index: added[a].index, message: "produced no file at " + added[a].outputPath +
+                                            " (status " + (function () { try { return String(added[a].item.status); } catch (e4) { return "?"; } })() + ")" });
+                        }
+                    }
+                    results.elapsedMs = new Date().getTime() - t0;
                 }
-                results.elapsedMs = new Date().getTime() - t0;
+            } finally {
+                for (var b = 0; b < added.length; b++) { try { added[b].item.remove(); } catch (e) {} }
+                for (var pz = 0; pz < pausedB.length; pz++) { try { pausedB[pz].render = true; } catch (e) {} }
             }
-            for (var b = 0; b < added.length; b++) { try { added[b].item.remove(); } catch (e) {} }
-            for (var pz = 0; pz < pausedB.length; pz++) { try { rq.item(pausedB[pz]).render = true; } catch (e) {} }
             return { queued: added.length, rendered: results, errors: failures };
         }
 
         if (cmd !== "render") { throw new Error("Unknown render command: " + cmd); }
 
         var comp = __mcp_resolveComp(args);
-        var outPath = String(args.outputPath || "");
-        if (!outPath) { throw new Error("render requires outputPath"); }
-        if (!/\.(mov|mp4|m4v|avi|mxf|png|tif|tiff|jpg|jpeg|psd|aif|aiff|wav|mp3)$/i.test(outPath)) {
-            throw new Error("outputPath needs a media extension (mov, mp4, png, tif, ...): " + outPath);
-        }
-        var dest = new File(outPath);
-        if (dest.exists && args.overwrite !== true) {
-            throw new Error("Refusing to overwrite existing file (pass overwrite:true): " + outPath);
-        }
+        var dest = __mcp_renderTarget(String(args.outputPath || ""), args.overwrite === true);
 
         var paused = [];
         for (var q = 1; q <= rq.numItems; q++) {
@@ -778,24 +884,24 @@ var __mcp_buildOps = {
             if (args.rsTemplate) { item.applyTemplate(String(args.rsTemplate)); }
             if (args.startTime !== undefined) { item.timeSpanStart = Number(args.startTime); }
             if (args.endTime !== undefined) { item.timeSpanDuration = Number(args.endTime) - item.timeSpanStart; }
-            var mod = item.outputModule(1);
-            mod.applyTemplate(String(args.omTemplate || "H.264 - Match Render Settings - 15 Mbps"));
-            mod.file = dest;
+            dest = __mcp_applyOutput(item.outputModule(1), dest, args.omTemplate);
+            __mcp_prepareRenderFiles(dest, args.overwrite === true);
             item.comment = "[MCP]";
             var t0 = new Date().getTime();
             rq.render();
+            var fileInfo = __mcp_renderFileInfo(dest);
             result = {
                 compId: comp.id, compName: comp.name, outputPath: dest.fsName,
                 status: String(item.status), done: (item.status === RQItemStatus.DONE),
                 elapsedMs: new Date().getTime() - t0,
-                exists: (new File(dest.fsName)).exists,
-                bytes: (new File(dest.fsName)).exists ? (new File(dest.fsName)).length : 0
+                exists: fileInfo.exists, bytes: fileInfo.bytes, fileCount: fileInfo.fileCount
             };
         } finally {
             try { item.remove(); } catch (e) {}
             for (var p = 0; p < paused.length; p++) { try { rq.item(paused[p]).render = true; } catch (e) {} }
         }
         if (!result.done) { throw new Error("Render did not complete: status " + result.status); }
+        if (!result.exists) { throw new Error("Render reported done but produced no file at " + result.outputPath); }
         return result;
     }
 };

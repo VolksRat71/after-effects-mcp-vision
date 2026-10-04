@@ -49,7 +49,7 @@ test('After Effects keeps its port, token folder, service name, tools and resour
   assert.strictEqual(out.tokenDirName, '.ae-mcp-vision');
   assert.strictEqual(out.service, 'ae-mcp-vision');
   assert.ok(out.tools.every((n) => n.startsWith('ae_')) && out.tools.length === 16);
-  assert.deepStrictEqual(out.resources, ['ae-vision://capabilities', 'ae-vision://recipes', 'ae-vision://install']);
+  assert.deepStrictEqual(out.resources, ['ae-vision://capabilities', 'ae-vision://recipes', 'ae-vision://integrations', 'ae-vision://install']);
   assert.match(out.instructions, /ae_query/);
   assert.strictEqual(out.hostJsx, path.join('host', 'ae', 'host.jsx'));
 });

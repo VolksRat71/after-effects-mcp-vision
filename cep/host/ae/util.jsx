@@ -139,7 +139,25 @@ function __mcp_readValue(p, time) {
         var atTime = (time !== undefined && time !== null);
         if (vt === PropertyValueType.TEXT_DOCUMENT) {
             var td = atTime ? p.valueAtTime(time, false) : p.value;
-            return { _type: "TextDocument", text: td.text, fontSize: td.fontSize, font: td.font };
+            var tdo = { _type: "TextDocument", text: td.text, fontSize: td.fontSize, font: td.font };
+            // The same fields ae_set accepts, so a read can be checked against a write.
+            // Each is guarded: AE throws for some in some states (boxTextSize on point text,
+            // strokeColor with no stroke applied).
+            try { tdo.fillColor = td.applyFill ? [td.fillColor[0], td.fillColor[1], td.fillColor[2]] : null; } catch (e1) {}
+            try { if (td.applyStroke) { tdo.strokeColor = [td.strokeColor[0], td.strokeColor[1], td.strokeColor[2]]; tdo.strokeWidth = td.strokeWidth; } } catch (e2) {}
+            try {
+                var J = ParagraphJustification, jn = null;
+                if (td.justification === J.LEFT_JUSTIFY) { jn = "left"; }
+                else if (td.justification === J.CENTER_JUSTIFY) { jn = "center"; }
+                else if (td.justification === J.RIGHT_JUSTIFY) { jn = "right"; }
+                else { jn = String(td.justification); }
+                tdo.justification = jn;
+            } catch (e3) {}
+            try { tdo.tracking = td.tracking; } catch (e4) {}
+            try { tdo.leading = td.autoLeading ? "auto" : td.leading; } catch (e5) {}
+            try { tdo.boxText = td.boxText === true; if (td.boxText) { tdo.boxTextSize = [td.boxTextSize[0], td.boxTextSize[1]]; } } catch (e6) {}
+            try { tdo.allCaps = td.allCaps; } catch (e7) {}
+            return tdo;
         }
         if (vt === PropertyValueType.SHAPE) {
             // A summary, not the vertex list: a roto path can hold hundreds of points.
@@ -167,8 +185,62 @@ function __mcp_readValue(p, time) {
     }
 }
 
-/* Dropdown Menu Control is the ONE place AE exposes an enum option table.
-   propertyParameters landed in 17.0.1; valueText in 26.0. */
+/*
+ * The text AE shows for a value (AE 26.0+). For a popup parameter such as
+ * Stroke's Paint Style this is the menu label ("On Transparent") where .value
+ * is only an integer - a guessed integer can silently pick the wrong mode
+ * (dropping the layer's footage, for Paint Style). Returned only when it is not
+ * just the number again, so plain sliders stay quiet.
+ */
+function __mcp_valueLabel(p) {
+    try {
+        if (p.propertyValueType !== PropertyValueType.OneD) { return null; }
+        var vt = p.valueText;
+        if (vt === undefined || vt === null || vt === "") { return null; }
+        vt = String(vt);
+        if (/^\s*[+\-]?[\d.]/.test(vt)) { return null; }   // sliders, angles ("0x+0.0 deg"), "50.0 px"
+        return vt;
+    } catch (e) { return null; }
+}
+
+/*
+ * TextDocument.font takes a PostScript name ("CourierNewPSMT"); agents and
+ * people write the family ("Courier New") or "Family Style". app.fonts (AE
+ * 24+) maps between them. Resolves in that order, preferring a Regular style
+ * for a bare family, and fails with near matches rather than letting AE
+ * reject or silently substitute.
+ */
+function __mcp_resolveFont(name) {
+    var fonts = null;
+    try { fonts = app.fonts; } catch (e) {}
+    if (!fonts || !fonts.allFonts) { return name; }   // before AE 24: pass through
+    try {
+        var byPs = fonts.getFontsByPostScriptName(name);
+        if (byPs && byPs.length) { return name; }
+    } catch (e1) {}
+    var want = name.toLowerCase(), family = null, full = null, near = [];
+    var groups = fonts.allFonts;
+    for (var g = 0; g < groups.length; g++) {
+        var grp = groups[g];
+        for (var f = 0; f < grp.length; f++) {
+            var ft = grp[f], fam = String(ft.familyName), sty = String(ft.styleName);
+            if ((fam + " " + sty).toLowerCase() === want) { full = ft.postScriptName; }
+            if (fam.toLowerCase() === want) {
+                if (!family || /^(regular|roman|book|normal)$/i.test(sty)) { family = ft.postScriptName; }
+            }
+            if (near.length < 8 && fam.toLowerCase().indexOf(want.split(" ")[0]) !== -1 &&
+                ("|" + near.join("|") + "|").indexOf("|" + fam + "|") === -1) { near.push(fam); }
+        }
+    }
+    if (full) { return full; }
+    if (family) { return family; }
+    throw new Error("No installed font '" + name + "' (tried PostScript name, family, and 'Family Style')" +
+                    (near.length ? " - similar families: " + near.join(", ") : ""));
+}
+
+/* A popup's options, 1-based as AE stores them. Dropdown Menu Control is the
+   one place AE exposes its own table (propertyParameters, 17.0.1+); built-in
+   effect popups come from the generated table in effect-enums.jsx. */
 function __mcp_enumOptions(p) {
     try {
         if (p.isDropdownEffect && p.propertyParameters) {
@@ -178,6 +250,11 @@ function __mcp_enumOptions(p) {
             return out;
         }
     } catch (e) {}
+    try {
+        if (typeof __mcp_effectEnums !== "undefined" && __mcp_effectEnums.hasOwnProperty(p.matchName)) {
+            return __mcp_effectEnums[p.matchName].slice(0);
+        }
+    } catch (e2) {}
     return null;
 }
 
