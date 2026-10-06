@@ -100,10 +100,11 @@ external tool can open, with its source path, size, timing and any
 interpretation overrides.
 
 [**sam-ui**](https://github.com/VolksRat71/sam-ui) uses it for a rotoscoping
-round trip, shipped in sam-ui 0.3.0: open After Effects footage in place in the
-sam-ui desktop app,
-track objects with SAM 2 or SAM 3, and export the result back to a new comp as
-animated masks.
+round trip, shipped in [sam-ui 0.3.0](https://github.com/VolksRat71/sam-ui/releases/tag/v0.3.0):
+open After Effects footage in place in the sam-ui desktop app, track objects with
+SAM 2 or SAM 3, and export the result back to a new comp as animated masks.
+
+https://github.com/user-attachments/assets/fbd8f37d-21ea-4036-98c0-7fe0a4ddefe1
 
 To build your own adapter, read [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md),
 also served as `ae-vision://integrations`. It covers the endpoints, the token
