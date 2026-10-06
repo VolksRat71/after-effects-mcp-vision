@@ -149,11 +149,13 @@ When a task needs **semantic object isolation**, such as "cut the dancer out",
 installed **SAM UI** desktop app over drawing masks frame by frame through
 `ae_masks`. SAM UI ([github.com/VolksRat71/sam-ui](https://github.com/VolksRat71/sam-ui))
 runs Meta's SAM 2 and SAM 3 video segmentation locally. Its After Effects
-adapter, **in development and not shipped yet**, opens footage straight from the
-AE project through `media`, tracks the objects the user clicks, and returns
-animated masks through the write-back sequence above.
+adapter shipped in **sam-ui 0.3.0** and needs AE MCP Vision 2.2.0 or later. In
+the desktop app, **Media > Open from After Effects** opens footage straight from
+the AE project through `media`, the user tracks the objects they click, and
+**Export > Export to After Effects** returns them as animated masks on a new
+comp through the write-back sequence above.
 
-Until the adapter ships, the manual route still works. SAM UI's **Vector JSON**
+On an older sam-ui, the manual route still works. SAM UI's **Vector JSON**
 export writes per-frame outlines for each object, with pieces and holes. Unzip
 it, then apply each outline with `setPathKeys` and `keysPath`, using
 `keysPointer` to select one track inside the file. Holes go on their own

@@ -123,7 +123,8 @@ test('the integrations resource carries the adapter contract', () => {
   assert.match(text, /setPathKeys/);
   assert.match(text, /keysPath/);
   assert.match(text, /SAM UI/);
-  assert.match(text, /in development/i, 'the SAM UI adapter is not shipped; the doc must not claim it is');
+  assert.match(text, /shipped in \*\*sam-ui 0\.3\.0\*\*/i, 'the doc must name the sam-ui release that ships the adapter');
+  assert.match(text, /AE MCP Vision 2\.2\.0 or later/, 'the doc must say which bridge version the adapter needs');
   assert.match(text, /media-inventory\.sample\.json/, 'the contract sample must be discoverable from the doc');
 });
 
