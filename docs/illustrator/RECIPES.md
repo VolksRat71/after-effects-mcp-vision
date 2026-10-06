@@ -158,6 +158,12 @@ off; pass `bounds: "visible"` to include strokes.
   one document can name an unrelated item in another. Pass `document` (the name
   from `sessionInfo`) on any call and it is refused if a different document is
   active; every result reports the document it ran in.
+- **Uuids do not survive closing and reopening a file.** Reopening the same
+  saved `.ai` gives its items new uuids (measured on Illustrator 30.3.0: a
+  headline went from 518 to 438), while the artwork and names are unchanged.
+  Passing the same `document` name does not catch this. After any open or
+  reopen, discard cached uuids and look items up again with `ai_query tree`
+  or `ai_query find`; the new ones then stay stable through editing and export.
 - `ai_document close` takes `name` to close exactly that document - without it,
   close acts on whichever is active.
 - `ai_document close` refuses unsaved changes without `discardUnsaved: true`,

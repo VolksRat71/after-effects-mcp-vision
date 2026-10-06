@@ -152,6 +152,47 @@ test('invalid artboard preserves every existing path point', () => {
   assert.strictEqual(ctx.item.pathPoints.length, 4);
 });
 
+/*
+ * Rectangles with x/width 0/1000, 10/10 and 30/10 (review on #10): centres
+ * 500, 15 and 35. Sorted by left edge, the wide one stays first and 15 moves;
+ * sorted by centre, 15 and 500 stay put and 35 moves to 257.5.
+ */
+function distributeDoc(ctx, horizontal) {
+  vm.runInContext(`
+    var horiz = ${horizontal};
+    var spans = [[0, 1000], [10, 20], [30, 40]];
+    var byUuid = {};
+    for (var i = 0; i < spans.length; i++) {
+      var s = spans[i];
+      var it = {uuid: String(i + 1), geometricBounds: horiz ? [s[0], 0, s[1], -10] : [0, -s[0], 10, -s[1]]};
+      it.translate = function (dx, dy) { var b = this.geometricBounds; this.geometricBounds = [b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy]; };
+      byUuid[it.uuid] = it;
+    }
+    var doc = {name: 'Layout.ai', artboards: [{artboardRect: [-2000, 2000, 2000, -2000]}],
+               getPageItemFromUuid: function (u) { return byUuid[u]; }};
+    doc.artboards.getActiveArtboardIndex = function () { return 0; };
+    app.documents = [doc];
+  `, ctx);
+  Object.defineProperty(ctx.app, 'activeDocument', { get: () => ctx.doc });
+  return ctx.byUuid;
+}
+
+for (const axis of ['horizontal', 'vertical']) {
+  test('distribute by centers keeps the outer centres fixed: ' + axis, () => {
+    const ctx = loadHost(null);
+    const items = distributeDoc(ctx, axis === 'horizontal');
+    const r = exec(ctx, 'distribute', { uuids: ['1', '2', '3'], by: 'centers', axis });
+    assert.strictEqual(r.ok, true, JSON.stringify(r.error));
+    const centre = (it) => {
+      const b = it.geometricBounds;
+      return axis === 'horizontal' ? (b[0] + b[2]) / 2 : -(b[1] + b[3]) / 2;
+    };
+    assert.strictEqual(centre(items['1']), 500);
+    assert.strictEqual(centre(items['2']), 15);
+    assert.strictEqual(centre(items['3']), 257.5);
+  });
+}
+
 function exportFilesystem(options = {}) {
   const files = new Map([['/tmp/render.png', 'new render'], ['/out/result.png', 'old output']]);
   function File(name) {

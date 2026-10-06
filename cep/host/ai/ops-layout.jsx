@@ -90,7 +90,13 @@ var __mcp_layoutOps = {
 
         var lo = function (b) { return horiz ? b[0] : -b[1]; };
         var hi = function (b) { return horiz ? b[2] : -b[3]; };
-        var sorted = list.slice(0).sort(function (a, c) { return lo(__mcp_boundsOf(a, mode)) - lo(__mcp_boundsOf(c, mode)); });
+        // Order by whatever is being spaced: by centres for "centers", so the
+        // outer two CENTRES stay put even when a wide item starts further left.
+        var key = function (it) {
+            var bb = __mcp_boundsOf(it, mode);
+            return by === "centers" ? (lo(bb) + hi(bb)) / 2 : lo(bb);
+        };
+        var sorted = list.slice(0).sort(function (a, c) { return key(a) - key(c); });
 
         var moveTo = function (it, start) {
             var d = start - lo(__mcp_boundsOf(it, mode));
