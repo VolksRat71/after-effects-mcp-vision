@@ -110,6 +110,17 @@ function __mcp_renderFileInfo(file) {
     return { exists: files.length > 0, bytes: bytes, fileCount: files.length };
 }
 
+// Only a QUEUED item is waiting to render, so only it needs pausing. A finished
+// one (DONE, or stopped) still reports render == true, but AE throws on setting
+// it: "Can not set attribute render when RenderQueueItem status is RENDERING,
+// STOPPED, or DONE" - which used to block every render in a project that still
+// had a completed job sitting in its queue.
+function __mcp_waitingToRender(item) {
+    var status;
+    try { status = item.status; } catch (e) { return false; }
+    return status === RQItemStatus.QUEUED && item.render;
+}
+
 var __mcp_buildOps = {
 
     /*
@@ -822,7 +833,7 @@ var __mcp_buildOps = {
             }
             var pausedB = [];
             for (var q = 1; q <= rq.numItems; q++) {
-                if (rq.item(q).render) { pausedB.push(rq.item(q)); rq.item(q).render = false; }
+                if (__mcp_waitingToRender(rq.item(q))) { pausedB.push(rq.item(q)); rq.item(q).render = false; }
             }
             var added = [], failures = [], results = [];
             try {
@@ -875,7 +886,7 @@ var __mcp_buildOps = {
 
         var paused = [];
         for (var q = 1; q <= rq.numItems; q++) {
-            if (rq.item(q).render) { paused.push(q); rq.item(q).render = false; }
+            if (__mcp_waitingToRender(rq.item(q))) { paused.push(q); rq.item(q).render = false; }
         }
 
         var item = rq.items.add(comp);
