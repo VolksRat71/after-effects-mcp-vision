@@ -40,9 +40,9 @@ Read from the environment Premiere was started with (on macOS,
 1. Is Premiere running? The server lives inside it.
 2. `curl -s -H "Authorization: Bearer $(cat ~/.premiere-mcp-vision/token)" http://127.0.0.1:8793/health`
    should report `"service":"premiere-mcp-vision"` and `"reachable":true`.
-3. No token file means the headless extension never started. Which start-up
-   events Premiere sends a hidden extension is not verified yet; open
-   Window > Extensions > Premiere MCP Vision once to start it by hand.
+3. No token file means the headless extension never started. On 26.0.2 it
+   starts by itself about 20 seconds after launch (measured); if it has not,
+   open Window > Extensions > Premiere MCP Vision once to start it by hand.
 4. Read the boot log above. `pr_diagnostics log` shows the last host errors.
 5. After editing `cep/host/pr/*.jsx`, run `pr_diagnostics reloadHost`; anything
    under `cep/server/` needs a Premiere restart.

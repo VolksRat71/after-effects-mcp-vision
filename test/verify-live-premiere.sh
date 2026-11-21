@@ -120,7 +120,7 @@ echo "$KEYS" | grep -q "'at': 0" && echo "$KEYS" | grep -q "'at': 3" && echo "$K
 
 R="$(tool pr_audio "{\"command\":\"level\",\"sequenceId\":\"$SEQ\",\"items\":[{\"nodeId\":\"$TONE_CLIP\",\"keys\":[{\"at\":0,\"value\":-60},{\"at\":1,\"value\":-6}]}]}")"
 R="$(tool pr_audio "{\"command\":\"read\",\"sequenceId\":\"$SEQ\",\"nodeId\":\"$TONE_CLIP\"}")"
-[ "$(echo "$R" | field "[(k['at'], round(k['db'])) for k in r['keys']]")" = "[(0.0, -60), (1.0, -6)]" ] \
+[ "$(echo "$R" | field "[(float(k['at']), round(k['db'])) for k in r['keys']]")" = "[(0.0, -60), (1.0, -6)]" ] \
   && ok "audio fade keys read back in dB" || bad "pr_audio keys" "$R"
 
 # ---------- vision ----------
@@ -139,6 +139,35 @@ else
   bad "pr_capture frames" "$R"
 fi
 
+# ---------- more edits: tracks, effects, trim/move/delete ----------
+R="$(tool pr_sequence "{\"command\":\"addTracks\",\"sequenceId\":\"$SEQ\",\"video\":1,\"audio\":1}")"
+[ "$(echo "$R" | is_error)" = "False" ] && ok "pr_sequence addTracks (QE): $(echo "$R" | field "str(r['videoTracks'])+' video, '+str(r['audioTracks'])+' audio'")" || bad "pr_sequence addTracks" "$R"
+
+R="$(tool pr_effects '{"command":"list","kind":"transition","match":"dissolve"}')"
+echo "$R" | grep -q "Cross Dissolve" && ok "pr_effects list finds Cross Dissolve" || bad "pr_effects list" "$R"
+R="$(tool pr_effects "{\"command\":\"transition\",\"sequenceId\":\"$SEQ\",\"items\":[{\"nodeId\":\"$CARD_CLIP\",\"duration\":0.5}]}")"
+[ "$(echo "$R" | field "len(r['errors'])")" = "0" ] && ok "pr_effects transition on the card (QE)" || bad "pr_effects transition" "$R"
+R="$(tool pr_effects "{\"command\":\"add\",\"sequenceId\":\"$SEQ\",\"items\":[{\"nodeId\":\"$BARS_CLIP\",\"name\":\"Gaussian Blur\"}]}")"
+if [ "$(echo "$R" | field "len(r['errors'])")" = "0" ]; then
+  K="$(tool pr_query "{\"command\":\"propertyKeys\",\"sequenceId\":\"$SEQ\",\"nodeId\":\"$BARS_CLIP\"}" | field "[c['name'] for c in r['components']]")"
+  echo "$K" | grep -q "Gaussian Blur" && ok "pr_effects add Gaussian Blur shows up on the clip" || bad "Gaussian Blur on clip" "$K"
+  R="$(tool pr_effects "{\"command\":\"params\",\"sequenceId\":\"$SEQ\",\"items\":[{\"nodeId\":\"$BARS_CLIP\",\"component\":\"Gaussian Blur\",\"param\":\"Amount\",\"value\":20}]}")"
+  [ "$(echo "$R" | field "r['applied'][0]['value']")" = "20" ] || [ "$(echo "$R" | field "r['applied'][0]['value']")" = "20.0" ] \
+    && ok "pr_effects params sets the blur Amount to 20 (26.0 Gaussian Blur is AE.Impact_Blur_FX; its strength is Amount)" || bad "pr_effects params" "$R"
+else
+  bad "pr_effects add" "$R"
+fi
+
+R="$(tool pr_clips "{\"command\":\"trim\",\"sequenceId\":\"$SEQ\",\"items\":[{\"nodeId\":\"$CARD_CLIP\",\"end\":3.5}]}")"
+[ "$(echo "$R" | field "r['applied'][0]['end']['frame']")" = "105" ] && ok "pr_clips trim end to 3.5 s (frame 105)" || bad "pr_clips trim" "$R"
+R="$(tool pr_clips "{\"command\":\"move\",\"sequenceId\":\"$SEQ\",\"items\":[{\"nodeId\":\"$CARD_CLIP\",\"to\":2}]}")"
+[ "$(echo "$R" | field "r['applied'][0]['start']['frame']")" = "60" ] && ok "pr_clips move start to 2 s (frame 60)" || bad "pr_clips move" "$R"
+R="$(tool pr_clips "{\"command\":\"lift\",\"sequenceId\":\"$SEQ\",\"items\":[{\"nodeId\":\"$CARD_CLIP\"},{\"nodeId\":\"no-such-clip\"}]}")"
+[ "$(echo "$R" | field "(len(r['applied']), r['errors'][0]['code'])")" = "(1, 'unknown_clip')" ] && ok "pr_clips lift: one removed, one unknown_clip" || bad "pr_clips lift" "$R"
+
+R="$(tool pr_diagnostics '{"command":"problems"}')"
+[ "$(echo "$R" | field "len(r['offline'])")" = "0" ] && ok "pr_diagnostics problems: no offline media" || bad "pr_diagnostics problems" "$R"
+
 # ---------- timeline export and render ----------
 R="$(tool pr_timeline "{\"command\":\"export\",\"sequenceId\":\"$SEQ\",\"path\":\"$WORK/live-check.xml\"}")"
 grep -q "<xmeml" "$WORK/live-check.xml" 2>/dev/null && ok "pr_timeline export wrote xmeml" || bad "pr_timeline export" "$R"
@@ -149,6 +178,11 @@ if [ -n "$PRESET" ]; then
   R="$(tool pr_render "{\"command\":\"direct\",\"sequenceId\":\"$SEQ\",\"path\":\"$WORK/render-1s.mp4\",\"preset\":\"$PRESET\",\"range\":\"inOut\"}")"
   DUR="$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$WORK/render-1s.mp4" 2>/dev/null)"
   [ -n "$DUR" ] && ok "pr_render direct wrote a ${DUR}s H.264 file" || bad "pr_render direct" "$R"
+  R="$(tool pr_render "{\"command\":\"queue\",\"sequenceId\":\"$SEQ\",\"path\":\"$WORK/render-queue.mp4\",\"preset\":\"$PRESET\",\"range\":\"inOut\"}")"
+  JOB="$(echo "$R" | field "r['jobId']")"
+  [ -n "$JOB" ] && ok "pr_render queue handed job $JOB to Media Encoder" || bad "pr_render queue" "$R"
+  R="$(tool pr_render "{\"command\":\"status\",\"jobId\":\"$JOB\",\"path\":\"$WORK/render-queue.mp4\"}")"
+  echo "        queue status right after: $(echo "$R" | field "r")"
 else
   bad "pr_render presets" "no H.264 Match Source preset found"
 fi

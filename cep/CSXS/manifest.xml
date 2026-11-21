@@ -107,8 +107,8 @@
         <Lifecycle>
           <AutoVisible>false</AutoVisible>
           <StartOn>
-            <!-- Which of these Premiere fires is not verified yet; unknown names
-                 are ignored. Window > Extensions starts it by hand otherwise. -->
+            <!-- Measured on 26.0.2: the server is up about 20 s after launch with
+                 this list. Unknown names are ignored. -->
             <Event>com.adobe.csxs.events.ApplicationActivate</Event>
             <Event>applicationActivate</Event>
             <Event>com.adobe.csxs.events.ApplicationInitialized</Event>
