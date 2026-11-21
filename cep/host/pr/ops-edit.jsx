@@ -53,6 +53,8 @@ function __mcp_place(seq, w, overwrite) {
     });
     if (!placed.length) { throw __mcp_fail("failed", "Premiere placed nothing for " + item.name); }
     if (Number(placed[0].clip.start.ticks) !== ticks) {
+        // Take the wrongly placed clips back out (lift, no ripple) before reporting.
+        for (var x = 0; x < placed.length; x++) { try { placed[x].clip.remove(false, true); } catch (e) {} }
         throw __mcp_fail("misplaced", item.name + " landed at " + __mcp_when(seq, placed[0].clip.start).seconds +
             " s, not " + __mcp_when(seq, ticks).seconds + " s - check the time units insertClip takes");
     }

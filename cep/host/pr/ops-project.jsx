@@ -55,10 +55,23 @@ function __mcp_importInto(paths, binId) {
     return { imported: ok !== false, items: __mcp_newChildren(bin, beforeItems), sequences: __mcp_newSequences(beforeSeqs) };
 }
 
-/* Own a project by the path asked for AND the path Premiere reports, which can differ (symlinks, slashes). */
-function __mcp_own(path) {
+/*
+ * Own a project by the path asked for AND the path Premiere reports, which can
+ * differ (symlinks, slashes) - but only if the active project really changed.
+ * A new/open that failed leaves the user's project active, and owning that
+ * would hand it to the agent.
+ */
+function __mcp_own(path, priorKey) {
+    var now = app.project && app.project.path ? __mcp_projectKey(app.project) : "";
+    if (!now || now === priorKey) {
+        throw __mcp_fail("open_failed", "Premiere did not switch to " + path + "; the active project is unchanged, so nothing was taken over");
+    }
     __mcp_ownedProjects[__mcp_pathKey(path)] = true;
-    if (app.project && app.project.path) { __mcp_ownedProjects[__mcp_projectKey(app.project)] = true; }
+    __mcp_ownedProjects[now] = true;
+}
+
+function __mcp_activeKey() {
+    try { return app.project && app.project.path ? __mcp_projectKey(app.project) : ""; } catch (e) { return ""; }
 }
 
 var __mcp_projectOps = {
@@ -69,8 +82,9 @@ var __mcp_projectOps = {
             var path = __mcp_absPath(args.path, "path");
             if (!/\.prproj$/i.test(path)) { throw __mcp_fail("bad_value", "path must end in .prproj"); }
             if (new File(path).exists) { throw __mcp_fail("exists", "A project already exists at " + path + "; open it instead"); }
+            var priorNew = __mcp_activeKey();
             app.newProject(path);
-            __mcp_own(path);
+            __mcp_own(path, priorNew);
             return { created: path, active: app.project ? app.project.path : null };
         }
         if (cmd === "open") {
@@ -84,8 +98,9 @@ var __mcp_projectOps = {
                         "Use pr_project adopt only if the user asked you to edit it.");
                 }
             }
+            var priorOpen = __mcp_activeKey();
             app.openDocument(op, true, true, true, true);
-            __mcp_own(op);
+            __mcp_own(op, priorOpen);
             return { opened: op, active: app.project ? app.project.path : null };
         }
         if (cmd === "adopt") {
@@ -100,8 +115,9 @@ var __mcp_projectOps = {
         if (cmd === "saveAs") {
             var target = __mcp_absPath(args.path, "path");
             if (new File(target).exists && !args.overwrite) { throw __mcp_fail("exists", target + " exists; pass overwrite:true"); }
+            var priorSave = __mcp_activeKey();
             __mcp_requireOwned().saveAs(target);
-            __mcp_own(target);
+            __mcp_own(target, priorSave);
             return { saved: target, active: app.project.path };
         }
         if (cmd === "close") {

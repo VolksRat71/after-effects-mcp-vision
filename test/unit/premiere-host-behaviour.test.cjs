@@ -401,6 +401,26 @@ test('open refuses a project that is already open, so it cannot be taken over', 
   assert.strictEqual(exec(ctx, 'sessionInfo').result.active.ownedByBridge, false);
 });
 
+test('a new or open that leaves the user\'s project active does not take it over', () => {
+  const world = fakePremiere();
+  world.app.newProject = () => {}; // Premiere declined: nothing changed
+  const ctx = loadHost(world);
+  const r = exec(ctx, 'project', { command: 'new', path: '/tmp/never.prproj' });
+  assert.strictEqual(r.error.code, 'open_failed');
+  assert.strictEqual(exec(ctx, 'sessionInfo').result.active.ownedByBridge, false);
+  assert.strictEqual(exec(ctx, 'clips', { sequenceId: 'seq-a', command: 'insert', items: [] }).error.code, 'not_owned');
+});
+
+test('a clip that lands somewhere other than asked is taken back out', () => {
+  const { world, ctx } = owned();
+  const track = world.seqA.videoTracks[0];
+  const real = track.insertClip;
+  track.insertClip = function (item) { return real.call(this, item, String(TPF_2997 * 3)); }; // always frame 3
+  const r = exec(ctx, 'clips', { sequenceId: 'seq-a', command: 'insert', items: [{ projectItem: world.bars.nodeId, track: 'V1', at: 0 }] });
+  assert.strictEqual(r.result.errors[0].code, 'misplaced');
+  assert.strictEqual(track.clips.length, 0);
+});
+
 test('a new project is owned under the path Premiere reports, not only the one asked for', () => {
   const world = fakePremiere();
   const ctx = loadHost(world);
