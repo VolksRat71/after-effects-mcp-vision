@@ -95,9 +95,32 @@ test('written paths must be absolute and outside every protected folder, symlink
     assert.throws(() => checkWritePath(path.join(archive, 'new', 'deeper', 'out.mp4')), /protected/);
     assert.throws(() => checkWritePath(path.join(root, 'link', 'out.mp4')), /protected/, 'a symlink into it is refused');
     assert.throws(() => checkWritePath(path.join(root, 'x', '..', 'archive', 'out.mp4')), /protected/);
+    if (process.platform === 'darwin' || process.platform === 'win32') {
+      assert.throws(() => checkWritePath(path.join(root, 'ARCHIVE', 'out.mp4')), /protected/, 'case does not get around it');
+    }
     assert.strictEqual(checkWritePath(path.join(root, 'renders', 'out.mp4')), path.join(root, 'renders', 'out.mp4'));
     assert.strictEqual(checkWritePath(path.join(root, 'archive-2', 'out.mp4')), path.join(root, 'archive-2', 'out.mp4'),
       'a sibling whose name starts the same is not inside');
+  } finally {
+    if (prior === undefined) delete process.env.PREMIERE_MCP_PROTECTED_DIRS; else process.env.PREMIERE_MCP_PROTECTED_DIRS = prior;
+  }
+});
+
+test('a project inside a protected folder cannot be opened, adopted or saved in place', async () => {
+  const root = tmp();
+  const prior = process.env.PREMIERE_MCP_PROTECTED_DIRS;
+  process.env.PREMIERE_MCP_PROTECTED_DIRS = root;
+  try {
+    const inside = path.join(root, 'family.prproj');
+    const host = stubHost({ sessionInfo: { ok: true, result: { active: { path: inside } } } });
+    const reg = createToolRegistry(host.fn);
+    for (const args of [{ command: 'open', path: inside }, { command: 'adopt' }, { command: 'save' }, { command: 'close', save: true }]) {
+      const res = await reg.callTool('pr_project', args);
+      assert.match(res.content[0].text, /^protected:/, JSON.stringify(args));
+    }
+    assert.deepStrictEqual(host.calls.map((c) => c.op).filter((op) => op !== 'sessionInfo'), [], 'nothing reached the project op');
+    await reg.callTool('pr_project', { command: 'close' });
+    assert.strictEqual(host.calls[host.calls.length - 1].op, 'project', 'closing without saving writes nothing, so it is allowed');
   } finally {
     if (prior === undefined) delete process.env.PREMIERE_MCP_PROTECTED_DIRS; else process.env.PREMIERE_MCP_PROTECTED_DIRS = prior;
   }

@@ -397,11 +397,13 @@ function checkWritePath(p, what = 'path') {
       if (dir === nodePath.dirname(dir)) break;
     }
   }
+  // macOS and Windows disks are case-insensitive by default, so /Archive and /archive are one folder.
+  const fold = process.platform === 'darwin' || process.platform === 'win32' ? (x) => x.toLowerCase() : (x) => x;
   for (const d of protectedDirs()) {
     let rd = d;
     try { rd = fs.realpathSync(d); } catch (e) { /* keep as given */ }
     for (const cand of [full, real]) {
-      const rel = nodePath.relative(rd, cand);
+      const rel = nodePath.relative(fold(rd), fold(cand));
       if (rel === '' || (!rel.startsWith('..') && !nodePath.isAbsolute(rel))) {
         throw new Error(`protected: ${what} ${p} is inside protected folder ${d} (PREMIERE_MCP_PROTECTED_DIRS)`);
       }
@@ -585,6 +587,8 @@ function createToolRegistry(callHost, deps = {}) {
 
   const QUERY_OPS = { sessionInfo: 1, tree: 1, clip: 1, propertyKeys: 1, sequencePresets: 1 };
   const PROJECT_WRITES = { new: 1, saveAs: 1 };
+  // These write to (or make writable) the project file itself, so its own path is checked too.
+  const PROJECT_IN_PLACE = { adopt: 1, save: 1 };
 
   const handlers = {
     pr_query: async (a) => {
@@ -605,6 +609,11 @@ function createToolRegistry(callHost, deps = {}) {
         const p = checkWritePath(a.path, 'path');
         existingRefused(p, a.overwrite);
         a = { ...a, path: p };
+      }
+      if (a.command === 'open') checkWritePath(a.path, 'project');
+      if (PROJECT_IN_PLACE[a.command] || (a.command === 'close' && a.save)) {
+        const session = await host('sessionInfo', {});
+        if (session.active && session.active.path) checkWritePath(session.active.path, 'project');
       }
       return textContent(await host('project', a));
     },
