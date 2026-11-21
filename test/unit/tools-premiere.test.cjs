@@ -95,6 +95,7 @@ test('written paths must be absolute and outside every protected folder, symlink
     assert.throws(() => checkWritePath(path.join(archive, 'new', 'deeper', 'out.mp4')), /protected/);
     assert.throws(() => checkWritePath(path.join(root, 'link', 'out.mp4')), /protected/, 'a symlink into it is refused');
     assert.throws(() => checkWritePath(path.join(root, 'x', '..', 'archive', 'out.mp4')), /protected/);
+    assert.throws(() => checkWritePath(path.join(archive, '..cache', 'out.mp4')), /protected/, 'a ..-prefixed name is still inside');
     if (process.platform === 'darwin' || process.platform === 'win32') {
       assert.throws(() => checkWritePath(path.join(root, 'ARCHIVE', 'out.mp4')), /protected/, 'case does not get around it');
     }

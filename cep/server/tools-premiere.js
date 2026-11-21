@@ -393,18 +393,21 @@ function checkWritePath(p, what = 'path') {
   let real = full;
   // Resolve symlinks on the nearest existing ancestor, so a link cannot smuggle a write into a protected folder.
   for (let dir = full; ; dir = nodePath.dirname(dir)) {
-    try { real = nodePath.join(fs.realpathSync(dir), nodePath.relative(dir, full)); break; } catch (e) {
+    try { real = nodePath.join(fs.realpathSync.native(dir), nodePath.relative(dir, full)); break; } catch (e) {
       if (dir === nodePath.dirname(dir)) break;
     }
   }
   // macOS and Windows disks are case-insensitive by default, so /Archive and /archive are one folder.
-  const fold = process.platform === 'darwin' || process.platform === 'win32' ? (x) => x.toLowerCase() : (x) => x;
+  // shortcut: Windows 8.3 short names and trailing dots are not normalised; add that if Windows renders are protected.
+  const fold = process.platform === 'darwin' || process.platform === 'win32' ? (x) => x.normalize('NFC').toLowerCase() : (x) => x;
   for (const d of protectedDirs()) {
     let rd = d;
-    try { rd = fs.realpathSync(d); } catch (e) { /* keep as given */ }
+    try { rd = fs.realpathSync.native(d); } catch (e) { /* keep as given */ }
     for (const cand of [full, real]) {
       const rel = nodePath.relative(fold(rd), fold(cand));
-      if (rel === '' || (!rel.startsWith('..') && !nodePath.isAbsolute(rel))) {
+      // "..cache" inside the folder is a name, not a step up: only ".." itself or "../" leaves it.
+      const outside = rel === '..' || rel.startsWith('..' + nodePath.sep) || nodePath.isAbsolute(rel);
+      if (!outside) {
         throw new Error(`protected: ${what} ${p} is inside protected folder ${d} (PREMIERE_MCP_PROTECTED_DIRS)`);
       }
     }
@@ -610,7 +613,8 @@ function createToolRegistry(callHost, deps = {}) {
         existingRefused(p, a.overwrite);
         a = { ...a, path: p };
       }
-      if (a.command === 'open') checkWritePath(a.path, 'project');
+      // The host gets the path that was checked, not the caller's spelling of it.
+      if (a.command === 'open') a = { ...a, path: checkWritePath(a.path, 'project') };
       if (PROJECT_IN_PLACE[a.command] || (a.command === 'close' && a.save)) {
         const session = await host('sessionInfo', {});
         if (session.active && session.active.path) checkWritePath(session.active.path, 'project');
