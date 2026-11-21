@@ -40,6 +40,11 @@ const keysSchema = {
   items: { type: 'object', properties: { at: { type: 'number', description: 'Seconds from the clip\'s first frame.' } } },
 };
 
+const clearKeysSchema = {
+  type: 'boolean',
+  description: 'A fixed value on a keyframed property deletes its keyframes, so it is refused (code keyframed) unless this is true.',
+};
+
 function textContent(value) {
   return { content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }] };
 }
@@ -177,7 +182,7 @@ const TOOLS = [
       'Audio levels in dB.\n\n' +
       '- level: items [{nodeId, db}] for a fixed level, or [{nodeId, keys:[{at, value}]}] with value in dB for a ' +
       'level curve - fades, or a music bed held down under narration. at is seconds from the clip\'s first frame.\n' +
-      '- read: one clip\'s level or keyframes, in dB.\n' +
+      '- read: one clip\'s level or keyframes, in dB (null is silence).\n' +
       '- mute / unmute: track ("A1").\n\n' +
       'Clip levels only: Premiere\'s scripting does not reach track faders.',
     inputSchema: {
@@ -189,7 +194,7 @@ const TOOLS = [
         track: { type: 'string' },
         items: {
           type: 'array',
-          items: { type: 'object', properties: { nodeId: nodeIdSchema, db: { type: 'number' }, keys: keysSchema } },
+          items: { type: 'object', properties: { nodeId: nodeIdSchema, db: { type: 'number' }, keys: keysSchema, clearKeys: clearKeysSchema } },
         },
       },
       required: ['command'],
@@ -218,7 +223,7 @@ const TOOLS = [
               position: { type: 'array', items: { type: 'number' } },
               anchor: { type: 'array', items: { type: 'number' } },
               scale: { type: 'number' }, rotation: { type: 'number' }, opacity: { type: 'number' },
-              keys: keysSchema,
+              keys: keysSchema, clearKeys: clearKeysSchema,
             },
             required: ['nodeId'],
           },
@@ -282,7 +287,7 @@ const TOOLS = [
             type: 'object',
             properties: {
               nodeId: nodeIdSchema, name: { type: 'string' }, duration: { type: 'number' }, atStart: { type: 'boolean' },
-              component: { type: 'string' }, param: { type: 'string' }, value: {}, keys: keysSchema,
+              component: { type: 'string' }, param: { type: 'string' }, value: {}, keys: keysSchema, clearKeys: clearKeysSchema,
             },
           },
         },
@@ -420,8 +425,11 @@ function freeBytes(p) {
   let dir = nodePath.resolve(p);
   while (!fs.existsSync(dir) && dir !== nodePath.dirname(dir)) dir = nodePath.dirname(dir);
   // shortcut: df is macOS/Linux only; on Windows this throws and the render is refused - add a PowerShell probe when Windows renders are needed.
-  const out = execFileSync('df', ['-k', dir], { encoding: 'utf8' }).trim().split('\n').pop().split(/\s+/);
-  return Number(out[3]) * 1024;
+  // POSIX output keeps one line per disk; the numbers are matched before the % so names with spaces cannot shift them.
+  const line = execFileSync('df', ['-kP', dir], { encoding: 'utf8' }).trim().split('\n').pop();
+  const m = / (\d+) +(\d+) +(\d+) +\d+% /.exec(line);
+  if (!m) throw new Error(`low_disk: could not read free space from df: ${line}`);
+  return Number(m[3]) * 1024;
 }
 
 function minFreeBytes() {
@@ -482,6 +490,10 @@ async function waitForFrame(file, timeoutMs = 20000) {
       if (isCompletePng(buf)) return c;
     }
     if (Date.now() - started >= timeoutMs) {
+      // A late write would otherwise be left in the temp folder for good.
+      const sweep = () => candidates.forEach((c) => { try { fs.unlinkSync(c); } catch (e) {} });
+      sweep();
+      setTimeout(sweep, 30000).unref?.();
       throw new Error(`capture_failed: Premiere wrote no complete PNG at ${file} within ${timeoutMs}ms`);
     }
     await new Promise((r) => setTimeout(r, 50));
@@ -570,6 +582,8 @@ function createToolRegistry(callHost, deps = {}) {
     if (a.command === 'status') return textContent(await host('render', a));
     if (a.command !== 'direct' && a.command !== 'queue') return errorContent(`Unknown pr_render command ${a.command}`);
     const out = checkWritePath(a.path, 'path');
+    // Without an extension the encoder adds its own, and that file was never checked.
+    if (!nodePath.extname(out)) throw new Error('bad_value: path must end in the extension the preset writes, e.g. .mp4 or .mov');
     existingRefused(out, a.overwrite);
     if (typeof a.preset !== 'string' || !fs.existsSync(a.preset)) {
       throw new Error(`missing_file: no export preset at ${a.preset}; list them with pr_render presets`);
@@ -602,20 +616,20 @@ function createToolRegistry(callHost, deps = {}) {
         return textContent({ ...def, bridge: bridgeInfo() });
       }
       // Listed explicitly so a command name can never reach a mutating op through the read-only tool.
-      if (!QUERY_OPS[a.command]) return errorContent(`Unknown pr_query command ${a.command}`);
+      if (!Object.prototype.hasOwnProperty.call(QUERY_OPS, a.command)) return errorContent(`Unknown pr_query command ${a.command}`);
       const out = await host(a.command, a);
       if (a.command === 'sessionInfo' && out && typeof out === 'object') out.bridge = bridgeInfo();
       return textContent(out);
     },
     pr_project: async (a) => {
-      if (PROJECT_WRITES[a.command]) {
+      if (Object.prototype.hasOwnProperty.call(PROJECT_WRITES, a.command)) {
         const p = checkWritePath(a.path, 'path');
         existingRefused(p, a.overwrite);
         a = { ...a, path: p };
       }
       // The host gets the path that was checked, not the caller's spelling of it.
       if (a.command === 'open') a = { ...a, path: checkWritePath(a.path, 'project') };
-      if (PROJECT_IN_PLACE[a.command] || (a.command === 'close' && a.save)) {
+      if (Object.prototype.hasOwnProperty.call(PROJECT_IN_PLACE, a.command) || (a.command === 'close' && a.save)) {
         const session = await host('sessionInfo', {});
         if (session.active && session.active.path) checkWritePath(session.active.path, 'project');
       }
@@ -678,4 +692,4 @@ function createToolRegistry(callHost, deps = {}) {
   };
 }
 
-module.exports = { createToolRegistry, TOOLS, checkWritePath, listPresets, waitForFrame };
+module.exports = { createToolRegistry, TOOLS, checkWritePath, listPresets, waitForFrame, freeBytes };

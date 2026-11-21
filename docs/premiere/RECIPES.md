@@ -22,7 +22,19 @@ Every write refuses with `not_owned` on a project this bridge did not create or
 open. That protects a project the user has open with unsaved work, which a
 script cannot tell apart from its own changes. `pr_project adopt` lifts it for
 the active project: use it only when the user asked for that project to be
-edited. The list survives `reloadHost` but not a Premiere restart.
+edited. `open` refuses (`already_open`) a project that is already open, for the
+same reason. The list survives `reloadHost` but not a Premiere restart.
+
+## Keyframes are never deleted by accident
+
+A fixed value on a property that has keyframes would delete them, so it is
+refused with `keyframed`; pass `clearKeys:true` to mean it.
+
+## The active sequence
+
+QE and frame capture only see the active sequence. The bridge switches with
+`openSequence` (which also brings that sequence's timeline tab forward), reads
+it back, and switches back afterwards.
 
 ## Building an edit
 
@@ -47,7 +59,7 @@ Premiere's scripting uses.
 ## Audio
 
 `pr_audio level {items:[{nodeId, keys:[{at:0, value:-60}, {at:1, value:0}]}]}`
-fades a clip in over a second. Values are dB. Premiere's scripting value for
+fades a clip in over a second. Values are dB; silence reads back as `null`. Premiere's scripting value for
 Volume Level is a gain where +15 dB is 1.0 (0 dB is about 0.178); the host
 converts both ways. Track faders are out of reach of the scripting API.
 

@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { createToolRegistry, TOOLS, checkWritePath, listPresets } = require('../../cep/server/tools-premiere.js');
+const { createToolRegistry, TOOLS, checkWritePath, listPresets, freeBytes } = require('../../cep/server/tools-premiere.js');
 
 // The smallest complete PNG: header, 1x1 IHDR, one IDAT, IEND.
 const PNG = Buffer.from(
@@ -173,6 +173,22 @@ test('outputs are never replaced without overwrite:true, and a missing preset is
   assert.strictEqual(host.calls.length, 0);
   await reg.callTool('pr_render', { command: 'direct', path: out, preset, overwrite: true });
   assert.strictEqual(host.calls.length, 1);
+});
+
+test('free space is read from df, including for a folder that does not exist yet', { skip: process.platform === 'win32' }, () => {
+  const here = freeBytes(os.tmpdir());
+  assert.ok(here > 0 && Number.isFinite(here));
+  assert.strictEqual(freeBytes(path.join(os.tmpdir(), 'not', 'made', 'yet')) > 0, true);
+});
+
+test('a render path without an extension is refused, since the encoder would add one nobody checked', async () => {
+  const dir = tmp();
+  const preset = path.join(dir, 'p.epr');
+  fs.writeFileSync(preset, 'p');
+  const host = stubHost();
+  const res = await createToolRegistry(host.fn, BIG_DISK).callTool('pr_render', { command: 'direct', path: path.join(dir, 'cut'), preset });
+  assert.match(res.content[0].text, /^bad_value: path must end in the extension/);
+  assert.strictEqual(host.calls.length, 0);
 });
 
 test('pr_render presets lists .epr files under the preset folders', async () => {

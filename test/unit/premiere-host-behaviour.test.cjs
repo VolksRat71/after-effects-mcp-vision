@@ -5,8 +5,12 @@
  * Time objects counted in ticks, tracks whose insertClip creates track items,
  * components with keyframes, a marker collection and a QE stub. What these
  * prove is the host's own logic - addressing, the frame grid, the ownership
- * guard, unit conversions, batch errors and state restore. Whether Premiere's
- * real DOM behaves like the fake is what test/verify-live-premiere.sh checks.
+ * guard, unit conversions, batch errors and state restore. The fake is strict
+ * where the scripting guide is: activeSequence has no setter (openSequence
+ * switches), Track.insertClip takes a String of ticks, Marker.end takes
+ * seconds - so the host cannot pass by leaning on a lenient fake. Whether
+ * Premiere's real DOM behaves like the guide is what verify-live-premiere.sh
+ * checks.
  */
 const test = require('node:test');
 const assert = require('node:assert');
@@ -48,10 +52,11 @@ const component = (displayName, params) => ({ displayName, matchName: displayNam
 let nextId = 100;
 function projectItem(name, seconds = 10) {
   return {
-    nodeId: String(nextId++), name, type: 1, children: null, seconds, inSet: null, outSet: null,
+    nodeId: String(nextId++), name, type: 1, children: null, seconds, inSet: 0, outSet: seconds,
     getMediaPath() { return `/media/${name}`; }, isOffline() { return false; },
-    setInPoint(s) { this.inSet = s; }, setOutPoint(s) { this.outSet = s; },
-    clearInPoint() { this.inSet = null; }, clearOutPoint() { this.outSet = null; },
+    getInPoint() { return at(this.inSet); }, getOutPoint() { return at(this.outSet); },
+    setInPoint(s, type) { assert.strictEqual(type, 4); this.inSet = s; },
+    setOutPoint(s, type) { assert.strictEqual(type, 4); this.outSet = s; },
   };
 }
 
@@ -59,10 +64,11 @@ function track(name, kind, seq) {
   const tr = {
     name, clips: coll([], 'numItems'), muted: 0, seq,
     isMuted() { return this.muted; }, setMute(v) { this.muted = v; },
-    insertClip(item, seconds) {
-      const srcIn = item.inSet || 0;
-      const len = (item.outSet !== null ? item.outSet : item.seconds) - srcIn;
-      const startTicks = Math.round(seconds * TPS);
+    insertClip(item, time) {
+      if (typeof time !== 'string' || !/^\d+$/.test(time)) throw new Error('insertClip time must be a String of ticks');
+      const srcIn = item.inSet;
+      const len = item.outSet - srcIn;
+      const startTicks = Number(time);
       const start = new Time(); start.ticks = startTicks;
       const end = new Time(); end.ticks = startTicks + Math.round(len * TPS);
       const comps = kind === 'Video'
@@ -91,7 +97,10 @@ function markerCollection() {
   return {
     list,
     createMarker(seconds) {
-      const m = { guid: `m${guid++}`, name: '', comments: '', type: 'Comment', start: at(seconds), end: at(seconds),
+      let end = at(seconds);
+      const m = { guid: `m${guid++}`, name: '', comments: '', type: 'Comment', start: at(seconds),
+        get end() { return end; },
+        set end(s) { if (typeof s !== 'number') throw new Error('Marker.end takes seconds'); end = at(s); },
         setTypeAsChapter() { this.type = 'Chapter'; }, setTypeAsComment() { this.type = 'Comment'; },
         setTypeAsSegmentation() { this.type = 'Segmentation'; }, setTypeAsWebLink() { this.type = 'WebLink'; },
         setColorByIndex(i) { this.color = i; } };
@@ -123,11 +132,14 @@ function fakePremiere({ projectPath = '/Users/test/User Edit.prproj' } = {}) {
   const still = projectItem('still.png', 5);
   const seqA = sequence('Edit', 'seq-a');
   const seqB = sequence('Other', 'seq-b');
+  let active = seqB;
   const project = {
     name: path.basename(projectPath), path: projectPath,
     rootItem: { nodeId: 'root', name: 'root', type: 3, children: coll([bars, tone, still], 'numItems') },
     sequences: coll([seqA, seqB], 'numSequences'),
-    activeSequence: seqB,
+    get activeSequence() { return active; },
+    set activeSequence(v) { throw new Error('activeSequence is read-only; use openSequence'); },
+    openSequence(id) { active = [seqA, seqB].find((s) => s.sequenceID === id) || active; return true; },
     saved: 0,
     save() { this.saved++; },
   };
@@ -138,11 +150,18 @@ function fakePremiere({ projectPath = '/Users/test/User Edit.prproj' } = {}) {
                exportFramePNG(tc, p) { exported.push({ tc, path: p, active: project.activeSequence.sequenceID }); } };
     },
   } };
+  const onDisk = new Set([projectPath]);
   const app = {
     version: '26.0.2', project, projects: coll([project], 'numProjects'),
     enableQE() {},
+    // Premiere reports a resolved path, which need not match the one asked for (macOS /tmp is /private/tmp).
+    newProject(p) {
+      const made = { ...project, name: path.basename(p), path: '/private' + p, sequences: coll([], 'numSequences'), saved: 0 };
+      app.projects.push(made); app.project = made; onDisk.add(p);
+    },
+    openDocument() { throw new Error('the test does not open projects'); },
   };
-  class File { constructor(p) { this.fsName = p; } get exists() { return false; } get parent() { return new Folder(path.dirname(this.fsName)); } }
+  class File { constructor(p) { this.fsName = p; } get exists() { return onDisk.has(this.fsName); } get parent() { return new Folder(path.dirname(this.fsName)); } }
   class Folder { constructor(p) { this.fsName = p; } get exists() { return true; } create() { return true; } }
   Folder.temp = { fsName: '/tmp' };
   return { app, qe, File, Folder, Time, project, seqA, seqB, bars, tone, still, exported };
@@ -228,8 +247,15 @@ test('insert gives a still its duration, uses a source range, then clears it fro
   const bars = r.result.applied[1].placed[0];
   assert.deepStrictEqual([bars.sourceIn, bars.sourceOut], [2, 4]);
   assert.deepStrictEqual(world.seqA.videoTracks[0].insertedWith, { srcIn: 2, srcOut: 4 });
-  assert.strictEqual(world.bars.inSet, null, 'the project item\'s in point must be cleared again');
-  assert.strictEqual(world.bars.outSet, null);
+  assert.deepStrictEqual([world.bars.inSet, world.bars.outSet], [0, 10], 'the project item\'s own in/out is put back');
+});
+
+test('a source range leaves the user\'s own in/out on the project item as it was', () => {
+  const { world, ctx } = owned();
+  world.bars.inSet = 1; world.bars.outSet = 9;
+  exec(ctx, 'clips', { sequenceId: 'seq-a', command: 'insert', items: [{ projectItem: world.bars.nodeId, track: 'V1', at: 0, sourceIn: 3 }] });
+  assert.deepStrictEqual(world.seqA.videoTracks[0].insertedWith, { srcIn: 3, srcOut: 9 });
+  assert.deepStrictEqual([world.bars.inSet, world.bars.outSet], [1, 9]);
 });
 
 test('a batch reports each failure with a code and still applies the rest', () => {
@@ -278,6 +304,27 @@ test('keyframe times count from the clip\'s first frame, not its source in-point
   assert.deepStrictEqual(level.keys.map((k) => k.t.seconds), [4, 5], 'stored against source time');
   const read = exec(ctx, 'audio', { sequenceId: 'seq-a', command: 'read', nodeId: id }).result;
   assert.deepStrictEqual(read.keys.map((k) => [k.at, k.db]), [[0, -60], [1, 0]], 'read back in clip time and dB');
+});
+
+test('silence reads as null dB, and the reply is still valid JSON', () => {
+  const { world, ctx } = owned();
+  const ins = exec(ctx, 'clips', { sequenceId: 'seq-a', command: 'insert', items: [{ projectItem: world.tone.nodeId, track: 'A1', at: 0 }] });
+  world.seqA.audioTracks[0].clips[0].components[0].properties[1].value = 0;
+  const raw = ctx.__mcp_exec(JSON.stringify({ op: 'audio', args: { sequenceId: 'seq-a', command: 'read', nodeId: ins.result.applied[0].placed[0].nodeId } }));
+  assert.strictEqual(JSON.parse(raw).result.db, null);
+});
+
+test('a fixed value never silently deletes keyframes', () => {
+  const { world, ctx } = owned();
+  const ins = exec(ctx, 'clips', { sequenceId: 'seq-a', command: 'insert', items: [{ projectItem: world.still.nodeId, track: 'V1', at: 0 }] });
+  const id = ins.result.applied[0].placed[0].nodeId;
+  exec(ctx, 'motion', { sequenceId: 'seq-a', items: [{ nodeId: id, keys: [{ at: 0, scale: 100 }, { at: 2, scale: 120 }] }] });
+  const refused = exec(ctx, 'motion', { sequenceId: 'seq-a', items: [{ nodeId: id, scale: 90 }] });
+  assert.strictEqual(refused.result.errors[0].code, 'keyframed');
+  const scale = world.seqA.videoTracks[0].clips[0].components[1].properties[1];
+  assert.strictEqual(scale.keys.length, 2, 'the keys are still there');
+  exec(ctx, 'motion', { sequenceId: 'seq-a', items: [{ nodeId: id, scale: 90, clearKeys: true }] });
+  assert.deepStrictEqual([scale.keys.length, scale.value], [0, 90]);
 });
 
 test('motion takes pixels and writes Premiere\'s frame fractions; non-video clips are refused', () => {
@@ -329,6 +376,22 @@ test('capture never writes outside its own folder', () => {
     assert.strictEqual(r.ok, false, bad);
     assert.strictEqual(r.error.code, 'bad_value');
   }
+});
+
+test('open refuses a project that is already open, so it cannot be taken over', () => {
+  const world = fakePremiere();
+  const ctx = loadHost(world);
+  const r = exec(ctx, 'project', { command: 'open', path: '/Users/test/User Edit.prproj' });
+  assert.strictEqual(r.error.code, 'already_open');
+  assert.strictEqual(exec(ctx, 'sessionInfo').result.active.ownedByBridge, false);
+});
+
+test('a new project is owned under the path Premiere reports, not only the one asked for', () => {
+  const world = fakePremiere();
+  const ctx = loadHost(world);
+  assert.strictEqual(exec(ctx, 'project', { command: 'new', path: '/tmp/scratch.prproj' }).ok, true);
+  assert.strictEqual(world.app.project.path, '/private/tmp/scratch.prproj');
+  assert.strictEqual(exec(ctx, 'sessionInfo').result.active.ownedByBridge, true);
 });
 
 test('the host always answers in JSON, even for nonsense', () => {

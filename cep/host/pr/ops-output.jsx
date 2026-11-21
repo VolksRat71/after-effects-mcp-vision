@@ -5,11 +5,12 @@
  * free disk); the host re-checks what it can see itself.
  */
 
-/* Media Encoder job outcomes, filled in by its event callbacks. Kept across a host reload. */
+/* Media Encoder jobs this bridge queued, and their outcomes from its event callbacks. Kept across a host reload. */
 if (typeof __mcp_encodeJobs === "undefined") { var __mcp_encodeJobs = {}; }
+if (typeof __mcp_encoderBound === "undefined") { var __mcp_encoderBound = false; }
 
 function __mcp_bindEncoder() {
-    if (__mcp_encodeJobs.__bound) { return; }
+    if (__mcp_encoderBound) { return; }
     var mark = function (state) {
         return function (jobID, outputFilePath) {
             __mcp_encodeJobs[String(jobID)] = { state: state, output: outputFilePath ? String(outputFilePath) : null,
@@ -19,7 +20,7 @@ function __mcp_bindEncoder() {
     app.encoder.bind("onEncoderJobComplete", mark("complete"));
     app.encoder.bind("onEncoderJobError", mark("error"));
     app.encoder.bind("onEncoderJobCanceled", mark("canceled"));
-    __mcp_encodeJobs.__bound = true;
+    __mcp_encoderBound = true;
 }
 
 function __mcp_refuseExisting(path, overwrite) {
@@ -55,7 +56,8 @@ var __mcp_outputOps = {
     render: function (args) {
         var cmd = args.command;
         if (cmd === "status") {
-            var job = __mcp_encodeJobs[String(args.jobId)] || { state: "queued-or-running" };
+            if (!__mcp_encodeJobs.hasOwnProperty(String(args.jobId))) { throw __mcp_fail("unknown_job", "This bridge queued no job " + args.jobId); }
+            var job = __mcp_encodeJobs[String(args.jobId)];
             var out = { jobId: String(args.jobId), state: job.state, output: job.output || null };
             if (args.path) { out.fileExists = new File(String(args.path)).exists; }
             return out;
@@ -78,6 +80,7 @@ var __mcp_outputOps = {
             app.encoder.launchEncoder();
             var jobId = app.encoder.encodeSequence(seq, path, preset, area, 1);
             if (!jobId || String(jobId) === "0") { throw __mcp_fail("failed", "Media Encoder did not accept the job"); }
+            if (!__mcp_encodeJobs.hasOwnProperty(String(jobId))) { __mcp_encodeJobs[String(jobId)] = { state: "queued-or-running" }; }
             if (args.start !== false) { app.encoder.startBatch(); }
             return { jobId: String(jobId), output: path, started: args.start !== false };
         }

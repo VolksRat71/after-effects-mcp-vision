@@ -193,7 +193,9 @@ function __mcp_clipSummary(seq, c, trackName) {
  */
 if (typeof __mcp_ownedProjects === "undefined") { var __mcp_ownedProjects = {}; }
 
-function __mcp_projectKey(project) { return String(project.path || "").toLowerCase(); }
+/* Paths as keys: one slash style, one case, so "C:\\A\\b.prproj" and "c:/a/b.prproj" match. */
+function __mcp_pathKey(p) { return String(p || "").replace(/\\/g, "/").toLowerCase(); }
+function __mcp_projectKey(project) { return __mcp_pathKey(project.path); }
 
 /*
  * Edits go only to a project this bridge made or opened, or one adopted on
@@ -238,13 +240,28 @@ function __mcp_qe() {
     return qe;
 }
 
+/*
+ * Make seq the active sequence. activeSequence has no documented setter;
+ * openSequence(id) is the documented call (it also brings up the sequence's
+ * timeline tab). It is read back, so a switch that did not take is an error,
+ * not a capture of the wrong sequence.
+ */
+function __mcp_activate(seq) {
+    var project = __mcp_project();
+    if (project.activeSequence && String(project.activeSequence.sequenceID) === String(seq.sequenceID)) { return; }
+    project.openSequence(seq.sequenceID);
+    if (!project.activeSequence || String(project.activeSequence.sequenceID) !== String(seq.sequenceID)) {
+        throw __mcp_fail("activate_failed", "Premiere did not make sequence " + seq.name + " active");
+    }
+}
+
 /* Run fn with seq as the active sequence (QE only sees the active one), then put the user's back. */
 function __mcp_withActive(seq, fn) {
     var project = __mcp_project();
     var prior = project.activeSequence;
     var switched = !prior || String(prior.sequenceID) !== String(seq.sequenceID);
-    if (switched) { project.activeSequence = seq; }
+    if (switched) { __mcp_activate(seq); }
     try { return fn(); } finally {
-        if (switched && prior) { try { project.activeSequence = prior; } catch (e) {} }
+        if (switched && prior) { try { project.openSequence(prior.sequenceID); } catch (e) {} }
     }
 }

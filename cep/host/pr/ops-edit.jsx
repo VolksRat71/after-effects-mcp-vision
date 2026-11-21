@@ -32,14 +32,19 @@ function __mcp_place(seq, w, overwrite) {
     var ticks = __mcp_snapTicks(seq, w.at || 0);
     var hasRange = __mcp_has(w.sourceIn) || __mcp_has(w.sourceOut);
     // insertClip uses the project item's own in/out, so a source range is set
-    // there for the call and cleared afterwards.
-    if (__mcp_has(w.sourceIn)) { item.setInPoint(Number(w.sourceIn), 4); }
-    if (__mcp_has(w.sourceOut)) { item.setOutPoint(Number(w.sourceOut), 4); }
+    // there for the call. The user's own in/out on that item is put back after.
+    var priorIn = null, priorOut = null;
+    if (hasRange) {
+        priorIn = item.getInPoint().seconds; priorOut = item.getOutPoint().seconds;
+        if (__mcp_has(w.sourceIn)) { item.setInPoint(Number(w.sourceIn), 4); }
+        if (__mcp_has(w.sourceOut)) { item.setOutPoint(Number(w.sourceOut), 4); }
+    }
     var before = __mcp_clipIds(seq);
     try {
-        if (overwrite) { track.overwriteClip(item, ticks / __MCP_TICKS); } else { track.insertClip(item, ticks / __MCP_TICKS); }
+        // Track.insertClip/overwriteClip take the time as a String of ticks.
+        if (overwrite) { track.overwriteClip(item, String(ticks)); } else { track.insertClip(item, String(ticks)); }
     } finally {
-        if (hasRange) { try { item.clearInPoint(); item.clearOutPoint(); } catch (e) {} }
+        if (hasRange) { try { item.setInPoint(priorIn, 4); item.setOutPoint(priorOut, 4); } catch (e) {} }
     }
     var placed = [];
     __mcp_eachClip(seq, function (c, name) {
@@ -47,6 +52,10 @@ function __mcp_place(seq, w, overwrite) {
         return false;
     });
     if (!placed.length) { throw __mcp_fail("failed", "Premiere placed nothing for " + item.name); }
+    if (Number(placed[0].clip.start.ticks) !== ticks) {
+        throw __mcp_fail("misplaced", item.name + " landed at " + __mcp_when(seq, placed[0].clip.start).seconds +
+            " s, not " + __mcp_when(seq, ticks).seconds + " s - check the time units insertClip takes");
+    }
     if (__mcp_has(w.duration)) {
         var end = __mcp_time(ticks + __mcp_snapTicks(seq, w.duration));
         for (var p = 0; p < placed.length; p++) { placed[p].clip.end = end; }
@@ -88,7 +97,7 @@ function __mcp_param(clip, compNames, paramName) {
 }
 
 /* Set a value, or keyframes [{at, value}], on one parameter. */
-function __mcp_setParam(clip, prop, value, keys, convert) {
+function __mcp_setParam(clip, prop, value, keys, convert, clearKeys) {
     if (keys instanceof Array && keys.length) {
         prop.setTimeVarying(true);
         for (var k = 0; k < keys.length; k++) {
@@ -98,7 +107,11 @@ function __mcp_setParam(clip, prop, value, keys, convert) {
         }
         return;
     }
-    if (prop.isTimeVarying()) { prop.setTimeVarying(false); }
+    if (prop.isTimeVarying()) {
+        // Turning keyframing off deletes every key, which may be the user's own work.
+        if (!clearKeys) { throw __mcp_fail("keyframed", prop.displayName + " has keyframes; a fixed value would delete them. Pass clearKeys:true to do that."); }
+        prop.setTimeVarying(false);
+    }
     prop.setValue(convert(value), true);
 }
 
@@ -107,7 +120,8 @@ function __mcp_setParam(clip, prop, value, keys, convert) {
  * where +15 dB is 1.0, so dB = 20*log10(v) + 15, and 0 dB is about 0.1778.
  */
 function __mcp_dbToLevel(db) { return Math.pow(10, (Number(db) - 15) / 20); }
-function __mcp_levelToDb(v) { return v > 0 ? __mcp_round(20 * Math.log(v) / Math.LN10 + 15) : -Infinity; }
+/* Silence is null: -Infinity is not valid JSON, and the polyfill would write it as a bare token. */
+function __mcp_levelToDb(v) { return v > 0 ? __mcp_round(20 * Math.log(v) / Math.LN10 + 15) : null; }
 
 /* ---------- markers ---------- */
 
@@ -217,7 +231,8 @@ var __mcp_editOps = {
                 m[__MCP_MARKER_TYPES[type]]();
                 if (__mcp_has(w.name)) { m.name = String(w.name); }
                 if (__mcp_has(w.comments)) { m.comments = String(w.comments); }
-                if (__mcp_has(w.duration)) { m.end = __mcp_time(__mcp_snapTicks(seq, Number(w.at) + Number(w.duration))); }
+                // Marker.end takes seconds, not a Time.
+                if (__mcp_has(w.duration)) { m.end = __mcp_snapTicks(seq, Number(w.at) + Number(w.duration)) / __MCP_TICKS; }
                 if (__mcp_has(w.color)) { m.setColorByIndex(Number(w.color)); }
                 return __mcp_markerInfo(seq, m);
             });
@@ -227,7 +242,10 @@ var __mcp_editOps = {
                 var m = __mcp_markerByGuid(collection, w.guid);
                 if (__mcp_has(w.name)) { m.name = String(w.name); }
                 if (__mcp_has(w.comments)) { m.comments = String(w.comments); }
-                if (__mcp_has(w.type)) { m[__MCP_MARKER_TYPES[String(w.type)]](); }
+                if (__mcp_has(w.type)) {
+                    if (!__MCP_MARKER_TYPES[String(w.type)]) { throw __mcp_fail("bad_value", "type must be one of " + __mcp_keys(__MCP_MARKER_TYPES).join(", ")); }
+                    m[__MCP_MARKER_TYPES[String(w.type)]]();
+                }
                 return __mcp_markerInfo(seq, m);
             });
         }
@@ -249,7 +267,7 @@ var __mcp_editOps = {
                 if (c.mediaType !== "Audio") { throw __mcp_fail("type_mismatch", c.name + " is not an audio clip"); }
                 var prop = __mcp_param(c, ["Volume"], "Level");
                 if (!__mcp_has(w.db) && !(w.keys instanceof Array)) { throw __mcp_fail("bad_value", "Give db or keys"); }
-                __mcp_setParam(c, prop, w.db, w.keys, __mcp_dbToLevel);
+                __mcp_setParam(c, prop, w.db, w.keys, __mcp_dbToLevel, w.clearKeys);
                 var out = { nodeId: String(c.nodeId), keyframed: !!prop.isTimeVarying() };
                 if (!out.keyframed) { out.db = __mcp_levelToDb(prop.getValue()); }
                 return out;
@@ -309,7 +327,7 @@ var __mcp_editOps = {
                     }
                 }
                 if (!keys.length && !__mcp_has(item[key])) { continue; }
-                __mcp_setParam(c, __mcp_param(c, spec[0], spec[1]), item[key], keys, spec[2]);
+                __mcp_setParam(c, __mcp_param(c, spec[0], spec[1]), item[key], keys, spec[2], item.clearKeys);
                 done.push(key);
             }
             if (!done.length) { throw __mcp_fail("bad_value", "Nothing to set: give position, scale, rotation, anchor or opacity, or keys"); }
@@ -333,7 +351,7 @@ var __mcp_editOps = {
             return __mcp_batch(args.items, function (w) {
                 var c = __mcp_clip(seq, w.nodeId).clip;
                 var prop = __mcp_param(c, [String(w.component)], String(w.param));
-                __mcp_setParam(c, prop, w.value, w.keys, function (v) { return v; });
+                __mcp_setParam(c, prop, w.value, w.keys, function (v) { return v; }, w.clearKeys);
                 return { nodeId: String(c.nodeId), component: w.component, param: w.param, value: prop.isTimeVarying() ? null : prop.getValue() };
             });
         }

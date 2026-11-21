@@ -55,6 +55,12 @@ function __mcp_importInto(paths, binId) {
     return { imported: ok !== false, items: __mcp_newChildren(bin, beforeItems), sequences: __mcp_newSequences(beforeSeqs) };
 }
 
+/* Own a project by the path asked for AND the path Premiere reports, which can differ (symlinks, slashes). */
+function __mcp_own(path) {
+    __mcp_ownedProjects[__mcp_pathKey(path)] = true;
+    if (app.project && app.project.path) { __mcp_ownedProjects[__mcp_projectKey(app.project)] = true; }
+}
+
 var __mcp_projectOps = {
 
     project: function (args) {
@@ -64,14 +70,22 @@ var __mcp_projectOps = {
             if (!/\.prproj$/i.test(path)) { throw __mcp_fail("bad_value", "path must end in .prproj"); }
             if (new File(path).exists) { throw __mcp_fail("exists", "A project already exists at " + path + "; open it instead"); }
             app.newProject(path);
-            __mcp_ownedProjects[path.toLowerCase()] = true;
+            __mcp_own(path);
             return { created: path, active: app.project ? app.project.path : null };
         }
         if (cmd === "open") {
             var op = __mcp_absPath(args.path, "path");
             if (!new File(op).exists) { throw __mcp_fail("missing_file", "No project at " + op); }
+            // Already open means the user may have unsaved work in it: opening again would just
+            // switch to it, and owning it then would bypass the guard.
+            for (var i = 0; i < app.projects.numProjects; i++) {
+                if (__mcp_projectKey(app.projects[i]) === __mcp_pathKey(op)) {
+                    throw __mcp_fail("already_open", op + " is already open in Premiere, so nothing was changed. " +
+                        "Use pr_project adopt only if the user asked you to edit it.");
+                }
+            }
             app.openDocument(op, true, true, true, true);
-            __mcp_ownedProjects[op.toLowerCase()] = true;
+            __mcp_own(op);
             return { opened: op, active: app.project ? app.project.path : null };
         }
         if (cmd === "adopt") {
@@ -87,7 +101,7 @@ var __mcp_projectOps = {
             var target = __mcp_absPath(args.path, "path");
             if (new File(target).exists && !args.overwrite) { throw __mcp_fail("exists", target + " exists; pass overwrite:true"); }
             __mcp_requireOwned().saveAs(target);
-            __mcp_ownedProjects[target.toLowerCase()] = true;
+            __mcp_own(target);
             return { saved: target, active: app.project.path };
         }
         if (cmd === "close") {
@@ -150,7 +164,7 @@ var __mcp_projectOps = {
         if (cmd === "info") { return __mcp_sequenceInfo(seq); }
         __mcp_requireOwned();
         if (cmd === "activate") {
-            __mcp_project().activeSequence = seq;
+            __mcp_activate(seq);
             return __mcp_sequenceInfo(seq);
         }
         if (cmd === "rename") { seq.name = String(args.name); return __mcp_sequenceInfo(seq); }
@@ -174,10 +188,16 @@ var __mcp_projectOps = {
         if (cmd === "addTracks") {
             // QE only, and QE acts on the active sequence.
             var v = Number(args.video || 0), a = Number(args.audio || 0);
+            var v0 = seq.videoTracks.numTracks, a0 = seq.audioTracks.numTracks;
             __mcp_withActive(seq, function () {
-                __mcp_qe().project.getActiveSequence().addTracks(v, seq.videoTracks.numTracks, a, 1, seq.audioTracks.numTracks, 0, 0, 0);
+                __mcp_qe().project.getActiveSequence().addTracks(v, v0, a, 1, a0, 0, 0, 0);
             });
-            return __mcp_sequenceInfo(seq);
+            var info = __mcp_sequenceInfo(seq);
+            if (info.videoTracks !== v0 + v || info.audioTracks !== a0 + a) {
+                throw __mcp_fail("failed", "QE addTracks left " + info.videoTracks + " video / " + info.audioTracks +
+                    " audio tracks; expected " + (v0 + v) + " / " + (a0 + a));
+            }
+            return info;
         }
         throw __mcp_fail("bad_value", "Unknown pr_sequence command " + cmd);
     }
