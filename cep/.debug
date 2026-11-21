@@ -4,12 +4,14 @@
     <HostList>
       <Host Name="AEFT" Port="8798"/>
       <Host Name="ILST" Port="8796"/>
+      <Host Name="PPRO" Port="8800"/>
     </HostList>
   </Extension>
   <Extension Id="com.aemcpvision.bridge.panel">
     <HostList>
       <Host Name="AEFT" Port="8799"/>
       <Host Name="ILST" Port="8797"/>
+      <Host Name="PPRO" Port="8801"/>
     </HostList>
   </Extension>
 </ExtensionList>

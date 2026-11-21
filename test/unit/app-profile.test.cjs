@@ -18,7 +18,8 @@ const ROOT = path.join(__dirname, '..', '..');
 
 function probe(app, script) {
   const env = { ...process.env, AE_MCP_TOKEN_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-profile-')),
-                ILLUSTRATOR_MCP_TOKEN_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-profile-')) };
+                ILLUSTRATOR_MCP_TOKEN_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-profile-')),
+                PREMIERE_MCP_TOKEN_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-profile-')) };
   if (app) env.MCP_HOST_APP = app; else delete env.MCP_HOST_APP;
   return JSON.parse(execFileSync(process.execPath, ['-e', script], { cwd: ROOT, env }).toString());
 }
@@ -63,6 +64,17 @@ test('Illustrator gets its own port, token folder, service name, tools and resou
   assert.deepStrictEqual(out.resources, ['illustrator-vision://recipes', 'illustrator-vision://install']);
   assert.match(out.instructions, /ai_query/);
   assert.strictEqual(out.hostJsx, path.join('host', 'ai', 'host.jsx'));
+});
+
+test('Premiere Pro gets its own port, token folder, service name, tools and resources', () => {
+  const out = probe('PPRO', SNAPSHOT);
+  assert.strictEqual(out.port, 8793);
+  assert.strictEqual(out.tokenDirName, '.premiere-mcp-vision');
+  assert.strictEqual(out.service, 'premiere-mcp-vision');
+  assert.ok(out.tools.every((n) => n.startsWith('pr_')) && out.tools.length === 12);
+  assert.deepStrictEqual(out.resources, ['premiere-vision://recipes', 'premiere-vision://install']);
+  assert.match(out.instructions, /pr_query/);
+  assert.strictEqual(out.hostJsx, path.join('host', 'pr', 'host.jsx'));
 });
 
 test('an unknown host app fails loudly rather than serving the wrong tools', () => {

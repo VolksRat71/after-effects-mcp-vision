@@ -40,6 +40,7 @@ Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 ; Docs served as MCP resources; they live outside cep/, so ship them too.
 Source: "..\..\docs\*.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\..\docs\illustrator\*.md"; DestDir: "{app}\docs\illustrator"; Flags: ignoreversion
+Source: "..\..\docs\premiere\*.md"; DestDir: "{app}\docs\premiere"; Flags: ignoreversion
 
 [Registry]
 ; Unsigned extensions require PlayerDebugMode, set per CSXS major version.
@@ -80,6 +81,18 @@ begin
     begin
       SuppressibleMsgBox('Please quit Illustrator first, then run this installer again.'#13#10#13#10 +
              'Illustrator loads extensions when it starts, so it needs to be closed during installation.',
+             mbError, MB_OK, IDOK);
+      Result := False;
+    end;
+  end;
+  // And into Premiere Pro.
+  if Result and Exec('cmd.exe', '/C tasklist /FI "IMAGENAME eq Adobe Premiere Pro.exe" | find /I "Adobe Premiere Pro.exe"',
+          '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    if ResultCode = 0 then
+    begin
+      SuppressibleMsgBox('Please quit Premiere Pro first, then run this installer again.'#13#10#13#10 +
+             'Premiere Pro loads extensions when it starts, so it needs to be closed during installation.',
              mbError, MB_OK, IDOK);
       Result := False;
     end;

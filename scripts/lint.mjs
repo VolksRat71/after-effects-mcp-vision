@@ -143,7 +143,7 @@ if (cepPkg.type !== 'commonjs') {
 // one-off doc edit.
 {
   const names = [];
-  for (const [file, prefix] of [['cep/server/tools.js', 'ae_'], ['cep/server/tools-illustrator.js', 'ai_']]) {
+  for (const [file, prefix] of [['cep/server/tools.js', 'ae_'], ['cep/server/tools-illustrator.js', 'ai_'], ['cep/server/tools-premiere.js', 'pr_']]) {
     const toolsSrc = readFileSync(join(ROOT, file), 'utf8');
     names.push(...[...toolsSrc.matchAll(new RegExp(`name: '(${prefix}[a-z_]+)'`, 'g'))].map((m) => m[1]));
   }

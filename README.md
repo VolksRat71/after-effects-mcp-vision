@@ -121,6 +121,48 @@ Each call is one undo step. Illustrator docs: [docs/illustrator/INSTALL.md](docs
 and [docs/illustrator/RECIPES.md](docs/illustrator/RECIPES.md), also served as
 `illustrator-vision://install` and `illustrator-vision://recipes`.
 
+## Premiere Pro
+
+The same extension also runs inside **Adobe Premiere Pro 2026 (26.0) or later**
+(written against 26.0.2). Premiere listens on `127.0.0.1:8793`, keeps its token
+in `~/.premiere-mcp-vision/token`, and shows **Window > Extensions > Premiere
+MCP Vision**. It is ExtendScript through CEP, like the other two apps; a UXP
+port is needed before Adobe turns CEP off by default (announced for December
+2028).
+
+```bash
+claude mcp add --transport http --scope user premiere-vision http://127.0.0.1:8793/mcp --header "Authorization: Bearer $(cat ~/.premiere-mcp-vision/token)"
+```
+
+Twelve tools. Project items and timeline clips are addressed by `nodeId`,
+sequences by `sequenceId`, tracks by name (`V1`, `A1`). Times are seconds on the
+sequence timeline, snapped to its frame grid. The bridge edits only a project it
+created or opened (or one explicitly adopted), so it cannot write into work you
+have open and unsaved.
+
+| Tool | What it does |
+|---|---|
+| `pr_query` | `sessionInfo`, `tree` (project panel, or one sequence's tracks and clips), `clip`, `propertyKeys`, `sequencePresets`, `describe` |
+| `pr_project` | New, open, adopt, save, save as, close; bins; import media in place; import After Effects comps |
+| `pr_sequence` | Create from a preset with no dialog, or from clips; rename, duplicate, in/out, playhead, add tracks |
+| `pr_clips` | Batched insert/overwrite at a time (stills get a duration), trim, move, lift, ripple delete, enable, link |
+| `pr_audio` | Clip levels in dB, fixed or keyframed (fades, a bed held under narration); track mute |
+| `pr_motion` | Position, scale, rotation, anchor and opacity, fixed or keyframed - photo moves in pixels |
+| `pr_markers` | Sequence and clip markers, chapter markers included |
+| `pr_effects` | Any effect parameter by name; add effects and transitions (experimental, QE) |
+| `pr_timeline` | Final Cut Pro 7 XML export and import |
+| `pr_render` | List export presets; export directly or through Media Encoder, with a free-disk floor |
+| `pr_capture` | **Vision:** one frame, or several times on one contact sheet |
+| `pr_diagnostics` | Health, offline media, empty sequences, recent host errors; reload the host |
+
+Two optional environment variables add guards for the server's process:
+`PREMIERE_MCP_PROTECTED_DIRS` (folders, separated like `PATH`, that no export,
+XML or project file may be written into) and `PREMIERE_MCP_MIN_FREE_GB` (the free
+space a render needs, default 15). Premiere docs:
+[docs/premiere/INSTALL.md](docs/premiere/INSTALL.md) and
+[docs/premiere/RECIPES.md](docs/premiere/RECIPES.md), also served as
+`premiere-vision://install` and `premiere-vision://recipes`.
+
 ## Documentation
 
 | | For |

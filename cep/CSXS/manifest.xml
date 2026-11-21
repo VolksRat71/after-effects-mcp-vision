@@ -30,6 +30,9 @@
            Document.getPageItemFromUuid(), the basis of Illustrator addressing.
            Measured on 30.8.1; 27.x-29.x not yet verified. -->
       <Host Name="ILST" Version="[27.0,99.9]" />
+      <!-- Premiere Pro 26.0 (2026) floor: the version this host was written
+           and measured against; earlier builds are not verified. -->
+      <Host Name="PPRO" Version="[26.0,99.9]" />
     </HostList>
     <LocaleList><Locale Code="All" /></LocaleList>
     <RequiredRuntimeList>
@@ -92,6 +95,31 @@
           <Geometry><Size><Height>1</Height><Width>1</Width></Size></Geometry>
         </UI>
       </DispatchInfo>
+      <DispatchInfo Host="PPRO">
+        <Resources>
+          <MainPath>./server.html</MainPath>
+          <ScriptPath>./host/pr/host.jsx</ScriptPath>
+          <CEFCommandLine>
+            <Parameter>--enable-nodejs</Parameter>
+            <Parameter>--mixed-context</Parameter>
+          </CEFCommandLine>
+        </Resources>
+        <Lifecycle>
+          <AutoVisible>false</AutoVisible>
+          <StartOn>
+            <!-- Which of these Premiere fires is not verified yet; unknown names
+                 are ignored. Window > Extensions starts it by hand otherwise. -->
+            <Event>com.adobe.csxs.events.ApplicationActivate</Event>
+            <Event>applicationActivate</Event>
+            <Event>com.adobe.csxs.events.ApplicationInitialized</Event>
+            <Event>documentAfterActivate</Event>
+          </StartOn>
+        </Lifecycle>
+        <UI>
+          <Type>Custom</Type>
+          <Geometry><Size><Height>1</Height><Width>1</Width></Size></Geometry>
+        </UI>
+      </DispatchInfo>
     </Extension>
 
     <Extension Id="com.aemcpvision.bridge.panel">
@@ -128,6 +156,24 @@
         <UI>
           <Type>Panel</Type>
           <Menu>Illustrator MCP Vision</Menu>
+          <Geometry><Size><Height>320</Height><Width>420</Width></Size></Geometry>
+        </UI>
+      </DispatchInfo>
+      <DispatchInfo Host="PPRO">
+        <Resources>
+          <MainPath>./index.html</MainPath>
+          <ScriptPath>./host/pr/host.jsx</ScriptPath>
+          <CEFCommandLine>
+            <Parameter>--enable-nodejs</Parameter>
+            <Parameter>--mixed-context</Parameter>
+          </CEFCommandLine>
+        </Resources>
+        <Lifecycle>
+          <AutoVisible>true</AutoVisible>
+        </Lifecycle>
+        <UI>
+          <Type>Panel</Type>
+          <Menu>Premiere MCP Vision</Menu>
           <Geometry><Size><Height>320</Height><Width>420</Width></Size></Geometry>
         </UI>
       </DispatchInfo>

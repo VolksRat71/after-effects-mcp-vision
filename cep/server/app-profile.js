@@ -111,6 +111,47 @@ const PROFILES = {
       },
     ],
   },
+  PPRO: {
+    id: 'PPRO',
+    appName: 'Premiere Pro',
+    service: 'premiere-mcp-vision',
+    clientName: 'premiere-vision',
+    port: 8793,
+    portEnv: 'PREMIERE_MCP_PORT',
+    tokenDir: path.join(os.homedir(), '.premiere-mcp-vision'),
+    tokenDirEnv: 'PREMIERE_MCP_TOKEN_DIR',
+    hostJsx: path.join('host', 'pr', 'host.jsx'),
+    tools: './tools-premiere.js',
+    instructions:
+      'Drives a live Adobe Premiere Pro session. Start with pr_query ' +
+      "{command:'sessionInfo'} to see the open project and its sequences, then " +
+      "pr_query {command:'tree'} for the project panel or {command:'tree', sequenceId} " +
+      'for one sequence\'s tracks and clips. Address project items and clips by ' +
+      'nodeId, sequences by sequenceId and tracks by name (V1, A1) - never by index. ' +
+      'Times are seconds on the sequence timeline, snapped to its frame grid. ' +
+      'The bridge edits only a project it created or opened (pr_project new/open), ' +
+      'so it never writes into work the user has open. Use pr_capture to look at ' +
+      'the edit rather than inferring it from the clip list. Before editing, read ' +
+      'the resource premiere-vision://recipes.',
+    resources: [
+      {
+        uri: 'premiere-vision://recipes',
+        name: 'Authoring recipes and gotchas',
+        description:
+          'How to build an edit in Premiere through this server: addressing, time, the ownership guard, ' +
+          'stills, photo moves, level curves, and what is verified live versus only offline.',
+        mimeType: 'text/markdown',
+        file: 'premiere/RECIPES.md',
+      },
+      {
+        uri: 'premiere-vision://install',
+        name: 'Install and troubleshooting',
+        description: 'Installing for Premiere Pro, connecting a client, and what to do when the server does not answer.',
+        mimeType: 'text/markdown',
+        file: 'premiere/INSTALL.md',
+      },
+    ],
+  },
 };
 
 function detectAppId() {
