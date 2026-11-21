@@ -177,12 +177,19 @@ if [ -n "$PRESET" ]; then
   tool pr_sequence "{\"command\":\"setInOut\",\"sequenceId\":\"$SEQ\",\"inPoint\":0,\"outPoint\":1}" >/dev/null
   R="$(tool pr_render "{\"command\":\"direct\",\"sequenceId\":\"$SEQ\",\"path\":\"$WORK/render-1s.mp4\",\"preset\":\"$PRESET\",\"range\":\"inOut\"}")"
   DUR="$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$WORK/render-1s.mp4" 2>/dev/null)"
-  [ -n "$DUR" ] && ok "pr_render direct wrote a ${DUR}s H.264 file" || bad "pr_render direct" "$R"
+  python3 -c "import sys; sys.exit(0 if 0.9 <= float(sys.argv[1] or 0) <= 1.1 else 1)" "$DUR" \
+    && ok "pr_render direct wrote a ${DUR}s H.264 file (in/out was 1 s)" || bad "pr_render direct" "duration '$DUR': $R"
   R="$(tool pr_render "{\"command\":\"queue\",\"sequenceId\":\"$SEQ\",\"path\":\"$WORK/render-queue.mp4\",\"preset\":\"$PRESET\",\"range\":\"inOut\"}")"
   JOB="$(echo "$R" | field "r['jobId']")"
   [ -n "$JOB" ] && ok "pr_render queue handed job $JOB to Media Encoder" || bad "pr_render queue" "$R"
+  QDUR=""
+  for _ in $(seq 60); do
+    QDUR="$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$WORK/render-queue.mp4" 2>/dev/null)"
+    [ -n "$QDUR" ] && break; sleep 2
+  done
   R="$(tool pr_render "{\"command\":\"status\",\"jobId\":\"$JOB\",\"path\":\"$WORK/render-queue.mp4\"}")"
-  echo "        queue status right after: $(echo "$R" | field "r")"
+  [ -n "$QDUR" ] && ok "Media Encoder finished the queued job: ${QDUR}s file, status $(echo "$R" | field "r['state']")" \
+    || bad "pr_render queue output" "no readable file after 120 s; status $R"
 else
   bad "pr_render presets" "no H.264 Match Source preset found"
 fi
@@ -251,6 +258,14 @@ else
   ok "pr_timeline import: probe arrived as sequence $PSEQ"
   R="$(tool pr_query "{\"command\":\"tree\",\"sequenceId\":\"$PSEQ\"}")"
   echo "        imported clips: $(echo "$R" | field "[(c['track'],c['name'],c['start']['frame'],c['end']['frame']) for t in r['tracks'] for c in t['clips']]")"
+  # Capture a sequence that is NOT active: the bridge must switch to it (openSequence) and switch back.
+  tool pr_sequence "{\"command\":\"activate\",\"sequenceId\":\"$PSEQ\"}" >/dev/null
+  BEFORE="$(tool pr_query '{"command":"sessionInfo"}' | field "r['active']['activeSequence']")"
+  R="$(tool pr_capture "{\"command\":\"frame\",\"sequenceId\":\"$SEQ\",\"time\":0.5,\"longEdge\":256}")"
+  AFTER="$(tool pr_query '{"command":"sessionInfo"}' | field "r['active']['activeSequence']")"
+  [ "$BEFORE" = "$PSEQ" ] && [ "$AFTER" = "$PSEQ" ] && echo "$R" | grep -q '"type":"image"' \
+    && ok "capture of an inactive sequence switched to it and back (active stayed $PSEQ)" \
+    || bad "sequence switch and restore" "before=$BEFORE after=$AFTER"
   tool pr_timeline "{\"command\":\"export\",\"sequenceId\":\"$PSEQ\",\"path\":\"$WORK/xmeml-probe-roundtrip.xml\"}" >/dev/null
   RT="$WORK/xmeml-probe-roundtrip.xml"
   echo "  FCP7 XML probe (from Premiere's own re-export, $RT):"
@@ -287,5 +302,10 @@ fi
 
 R="$(tool pr_project '{"command":"close","save":true}')"
 [ "$(echo "$R" | is_error)" = "False" ] && ok "scratch project saved and closed" || bad "pr_project close" "$R"
+
+R="$(tool pr_project "{\"command\":\"open\",\"path\":\"$WORK/scratch.prproj\"}")"
+N="$(tool pr_query '{"command":"sessionInfo"}' | field "len(r['active']['sequences']) if r['active'] and r['active']['ownedByBridge'] else -1")"
+[ "${N:-0}" -ge 2 ] && ok "pr_project open of the saved scratch project: owned, $N sequences" || bad "pr_project open" "$R / sequences=$N"
+tool pr_project '{"command":"close"}' >/dev/null
 
 done_

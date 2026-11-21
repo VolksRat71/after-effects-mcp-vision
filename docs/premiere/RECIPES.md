@@ -80,26 +80,31 @@ result each time with `pr_query clip` or `pr_capture`.
 
 ## Verified live versus offline
 
-`test/verify-live-premiere.sh` passed 34/34 on Premiere Pro 26.0.2 (macOS,
+`test/verify-live-premiere.sh` passed 37/37 on Premiere Pro 26.0.2 (macOS,
 2026-11-21), through the real server with nothing stubbed:
 
-- The headless server starts by itself about 20 s after Premiere launches; no
-  panel click was needed.
-- `pr_project` new, import (nodeIds returned), close with save; `open` of a
-  closed project.
+- `pr_project` new, import (nodeIds returned), close with save, and `open` of
+  that saved project again (owned, both sequences back).
 - `pr_sequence create` (QE, from a preset, no dialog) and `addTracks` (QE).
 - `pr_clips` overwrite with a source range and a still duration landing on the
   exact frames; trim, move, lift with a per-item `unknown_clip` error.
 - `pr_markers` chapter marker; `pr_motion` scale keys and `pr_audio` level keys
-  read back at the clip-relative times and in dB. A capture one second into a
-  50-to-80% scale move shows the card at 60%, so the keyframe time base is right.
+  read back at the clip-relative times and in dB. (By eye, not asserted: a
+  capture one second into a 50-to-80% scale move showed the card at 60%, which
+  agrees with the keyframe time base.)
+- Capturing a sequence that is not active switches to it with `openSequence`
+  and back; the active sequence afterwards is the one before.
 - `pr_effects` list, transition (Cross Dissolve, QE), add (Gaussian Blur, QE)
   and params.
 - `pr_capture` frame and a three-frame contact sheet; `pr_timeline` export and
-  import; `pr_render` direct (a 1 s H.264 file) and queue through Media Encoder.
+  import; `pr_render` direct (a 1 s H.264 file, duration checked) and queue
+  through Media Encoder (the file appears and status reads complete).
 - The FCP7 XML probe: two video tracks, the tone, a still with a 150-frame
   duration, a cross dissolve, a marker, Motion scale keyframes and audio level
   keyframes all SURVIVED import (checked in Premiere's own re-export).
+
+Observed but not asserted by the script: the headless server started by itself
+about 20 s after Premiere launched, with no panel click.
 
 Learned live:
 
