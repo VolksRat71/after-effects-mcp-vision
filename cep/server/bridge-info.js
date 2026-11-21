@@ -21,14 +21,29 @@ function readVersion() {
   } catch (e) { return null; }
 }
 
+/*
+ * In a git worktree .git is a file ("gitdir: <path>") naming the worktree's own
+ * git dir, which keeps HEAD but shares refs with the main repository through
+ * its commondir. Reading .git as a folder there reported commit: null.
+ */
+function gitDirs(repo) {
+  const dotGit = path.join(repo, '.git');
+  if (fs.statSync(dotGit).isDirectory()) return { git: dotGit, common: dotGit };
+  const git = path.resolve(repo, fs.readFileSync(dotGit, 'utf8').trim().replace(/^gitdir: /, ''));
+  let common = git;
+  try { common = path.resolve(git, fs.readFileSync(path.join(git, 'commondir'), 'utf8').trim()); } catch (e) {}
+  return { git, common };
+}
+
 function readGit(repo) {
   try {
-    const head = fs.readFileSync(path.join(repo, '.git', 'HEAD'), 'utf8').trim();
+    const { git, common } = gitDirs(repo);
+    const head = fs.readFileSync(path.join(git, 'HEAD'), 'utf8').trim();
     if (!head.startsWith('ref: ')) return { branch: null, commit: head.slice(0, 7) };
     const ref = head.slice(5);
     let sha = null;
-    try { sha = fs.readFileSync(path.join(repo, '.git', ref), 'utf8').trim(); } catch (e) {
-      const packed = fs.readFileSync(path.join(repo, '.git', 'packed-refs'), 'utf8');
+    try { sha = fs.readFileSync(path.join(common, ref), 'utf8').trim(); } catch (e) {
+      const packed = fs.readFileSync(path.join(common, 'packed-refs'), 'utf8');
       const line = packed.split('\n').find((l) => l.endsWith(' ' + ref));
       sha = line ? line.split(' ')[0] : null;
     }
