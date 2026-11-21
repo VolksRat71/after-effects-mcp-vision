@@ -145,6 +145,8 @@ function fakePremiere({ projectPath = '/Users/test/User Edit.prproj' } = {}) {
   };
   const exported = [];
   const qe = { project: {
+    path: projectPath,
+    init() { if (!qe.stuck) this.path = app.project.path; return true; },
     getActiveSequence() {
       return { CTI: { timecode: 'TC@' + project.activeSequence.playhead.ticks },
                exportFramePNG(tc, p) { exported.push({ tc, path: p, active: project.activeSequence.sequenceID }); } };
@@ -367,6 +369,19 @@ test('captureFrame shoots the asked sequence and frame, then restores the user\'
   assert.strictEqual(world.project.activeSequence.sequenceID, 'seq-b', 'the user\'s active sequence is back');
   assert.strictEqual(world.seqA.playhead.ticks, String(TPF_2997 * 7), 'and so is the playhead');
   assert.strictEqual(r.result.time.frame, 60);
+});
+
+test('QE is re-attached to the open project before use, and refused if it will not follow', () => {
+  const world = fakePremiere();
+  const ctx = loadHost(world);
+  world.qe.project.path = '/Users/test/Closed Earlier.prproj';
+  assert.strictEqual(exec(ctx, 'captureFrame', { sequenceId: 'seq-a', time: 0, fileName: 'a.png' }).ok, true);
+  assert.strictEqual(world.qe.project.path, world.project.path, 'init() moved QE to the open project');
+  world.qe.project.path = '/Users/test/Closed Earlier.prproj';
+  world.qe.stuck = true;
+  const r = exec(ctx, 'captureFrame', { sequenceId: 'seq-a', time: 0, fileName: 'b.png' });
+  assert.strictEqual(r.error.code, 'qe_stale');
+  assert.strictEqual(world.exported.length, 1, 'nothing ran against the wrong project');
 });
 
 test('capture never writes outside its own folder', () => {

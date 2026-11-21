@@ -233,10 +233,25 @@ function __mcp_absPath(p, what) {
     return s;
 }
 
-/* QE is undocumented and must be switched on before use. */
+/*
+ * QE is undocumented and must be switched on before use. It also keeps its own
+ * current project, which does not follow app.project: measured on 26.0.2, after
+ * the first project was closed and a second created, QE still pointed at the
+ * closed one, and QE's newSequence went into it. qe.project.init() re-attaches
+ * it (measured). A QE op never runs while the two disagree.
+ */
 function __mcp_qe() {
     app.enableQE();
     if (typeof qe === "undefined" || !qe.project) { throw __mcp_fail("no_qe", "The QE DOM is not available in this Premiere build"); }
+    var want = __mcp_projectKey(__mcp_project());
+    var have = function () { try { return __mcp_pathKey(qe.project.path); } catch (e) { return ""; } };
+    if (want && have() && have() !== want) {
+        try { qe.project.init(); } catch (e) {}
+        if (have() !== want) {
+            throw __mcp_fail("qe_stale", "QE is attached to " + qe.project.path + ", not the open project " +
+                app.project.path + ", so nothing was done. Restart Premiere to reset it.");
+        }
+    }
     return qe;
 }
 

@@ -37,7 +37,11 @@ __mcp_ops.reloadHost = function () {
 };
 
 __mcp_ops.hostInfo = function () {
-    return { loadedAt: __mcp_loadedAt, opCount: __mcp_opCount(), appVersion: app.version };
+    var out = { loadedAt: __mcp_loadedAt, opCount: __mcp_opCount(), appVersion: app.version };
+    // QE keeps its own idea of the current project; when it differs from app.project, QE ops land elsewhere.
+    try { out.project = app.project ? app.project.path : null; } catch (e) {}
+    try { app.enableQE(); out.qeProject = qe.project ? qe.project.path : null; } catch (e) { out.qeProject = "error: " + String(e); }
+    return out;
 };
 
 __mcp_ops.listOps = function () {

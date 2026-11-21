@@ -669,6 +669,7 @@ function createToolRegistry(callHost, deps = {}) {
         out.hostReachable = true;
         out.appVersion = info.appVersion;
         out.opCount = info.opCount;
+        out.qeProject = info.qeProject;
         const session = await host('sessionInfo', {});
         out.activeProject = session.active ? { name: session.active.name, path: session.active.path,
           ownedByBridge: session.active.ownedByBridge, sequences: session.active.sequences.length } : null;

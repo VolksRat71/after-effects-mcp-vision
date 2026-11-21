@@ -49,6 +49,8 @@ var __mcp_queryOps = {
 
     sessionInfo: function () {
         var out = { appVersion: app.version, projects: [] };
+        // QE's own current project; QE-backed ops act there, so a mismatch explains a QE op that "did nothing".
+        try { app.enableQE(); out.qeProject = qe.project ? String(qe.project.path || qe.project.name) : null; } catch (e) { out.qeProject = null; }
         for (var i = 0; i < app.projects.numProjects; i++) {
             var p = app.projects[i];
             out.projects.push({ name: p.name, path: p.path, ownedByBridge: !!__mcp_ownedProjects[__mcp_projectKey(p)] });
