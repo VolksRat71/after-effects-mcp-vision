@@ -11,6 +11,7 @@ cep/
   server/             MCP protocol, HTTP transport, tool surface, contact sheet
   host/ae/            ExtendScript that runs inside After Effects
   host/ai/            ExtendScript that runs inside Illustrator
+  host/pr/            ExtendScript that runs inside Premiere Pro
   host/json-polyfill.jsx  shared by both hosts
 test/
   unit/               runs anywhere, gates CI
@@ -25,11 +26,12 @@ make here.
 
 ## More than one app
 
-The extension is listed for After Effects (`AEFT`) and Illustrator (`ILST`).
+The extension is listed for After Effects (`AEFT`), Illustrator (`ILST`) and
+Premiere Pro (`PPRO`).
 Each app loads its own copy in its own process, so each runs its own server.
 What differs per app is decided in one place, `cep/server/app-profile.js`:
-port (8791 / 8792), token folder, service name, tool file (`tools.js` /
-`tools-illustrator.js`), MCP instructions and doc resources. The manifest gives
+port (8791 / 8792 / 8793), token folder, service name, tool file (`tools.js` /
+`tools-illustrator.js` / `tools-premiere.js`), MCP instructions and doc resources. The manifest gives
 each host its own `DispatchInfo`, which is how each app gets its own
 `host/<app>/host.jsx` and panel menu name. Everything else - HTTP, auth, the
 MCP protocol, the evalScript bridge, the contact sheet - is shared.
@@ -93,6 +95,7 @@ npm test                 # unit tests, no After Effects needed
 npm run test:integration # against a live After Effects
 ./test/verify-live.sh    # against a running extension, nothing stubbed
 ./test/verify-live-illustrator.sh   # the same, against Illustrator
+./test/verify-live-premiere.sh      # the same, against Premiere Pro, plus the FCP7 XML probe
 ```
 
 `npm run lint` and `npm test` gate CI. The integration suite cannot — no hosted
