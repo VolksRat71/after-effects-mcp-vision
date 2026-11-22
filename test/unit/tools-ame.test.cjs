@@ -142,12 +142,12 @@ test('host failures surface as code: message', async () => {
 test('ame_batch: start, pause, stop go through; clear needs all:true', async () => {
   const host = stubHost(); const reg = createToolRegistry(host.fn, NO_WAIT);
   for (const command of ['start', 'pause', 'stop']) await reg.callTool('ame_batch', { command });
-  assert.deepStrictEqual(host.calls.map((c) => c.op), ['start', 'pause', 'stop']);
+  assert.deepStrictEqual(host.calls.map((c) => c.op), ['start', 'pause', 'status', 'stop'], 'stop reads the status first');
   const refused = await reg.callTool('ame_batch', { command: 'clear' });
   assert.match(refused.content[0].text, /^needs_all:/);
-  assert.strictEqual(host.calls.length, 3);
+  assert.strictEqual(host.calls.length, 4);
   await reg.callTool('ame_batch', { command: 'clear', all: true });
-  assert.strictEqual(host.calls[3].op, 'clear');
+  assert.strictEqual(host.calls[4].op, 'clear');
   assert.strictEqual((await reg.callTool('ame_batch', { command: 'explode' })).isError, true);
 });
 
@@ -217,4 +217,92 @@ test('diagnostics health reports the relay and build, and says so when nothing a
   assert.strictEqual(d.ameReachable, false);
   assert.match(d.error, /no_relay/);
   assert.strictEqual(text(await reg.callTool('ame_diagnostics', { command: 'log' })).hostErrors[0].code, 'no_relay');
+});
+
+test('the footage FILE is what is matched, whatever the expression does with it', async () => {
+  for (const content of ['x footage("rig.JSON") y', "footage('a b/lib.jsx').text", 'footage("L.js")']) {
+    const s = scene(content);
+    const r = await createToolRegistry(stubHost().fn, NO_WAIT).callTool('ame_queue', { command: 'comp', projectPath: s.aep, guid: 'g', preset: s.preset, path: s.out });
+    assert.match(r.content[0].text, /^expression_library:/, content);
+  }
+  const clean = scene('footage("clip.mp4").width footage("pic.png")');
+  assert.deepStrictEqual(expressionLibraries(clean.aep).files, []);
+});
+
+test('a project that cannot be scanned is refused unless the override is given', async () => {
+  const s = scene(); const host = stubHost();
+  const reg = createToolRegistry(host.fn, NO_WAIT);
+  const real = fs.readFileSync;
+  fs.readFileSync = function (p, ...rest) { if (p === s.aep) { const e = new Error('too long'); e.code = 'ERR_STRING_TOO_LONG'; throw e; } return real.call(this, p, ...rest); };
+  try {
+    const r = await reg.callTool('ame_queue', { command: 'comp', projectPath: s.aep, guid: 'g', preset: s.preset, path: s.out });
+    assert.match(r.content[0].text, /^expression_library_unchecked: .*ERR_STRING_TOO_LONG/);
+    assert.strictEqual(host.calls.length, 0);
+    const ok = await reg.callTool('ame_queue', { command: 'comp', projectPath: s.aep, guid: 'g', preset: s.preset, path: s.out, allowExpressionLibrary: true, start: false });
+    assert.notStrictEqual(ok.isError, true);
+  } finally { fs.readFileSync = real; }
+});
+
+test('a start that throws after queueing still returns the job, with the error', async () => {
+  const s = scene();
+  const host = stubHost({ start: { ok: false, error: { code: 'ame_timeout', message: 'slow' } } });
+  const reg = createToolRegistry(host.fn, NO_WAIT);
+  const r = await reg.callTool('ame_queue', { command: 'file', source: s.src, preset: s.preset, path: s.out });
+  assert.notStrictEqual(r.isError, true);
+  const body = text(r);
+  assert.strictEqual(body.started, false);
+  assert.match(body.startError, /ame_timeout/);
+  assert.strictEqual(text(await reg.callTool('ame_status', {})).jobs[0].jobId, body.jobId);
+});
+
+test('a file left from before is never the job\'s output, but an overwrite and a new file are', async () => {
+  const s = scene(); let ame = { isBatchRunning: false, batchStatus: 'stopped', completed: 0, errors: 0 };
+  const reg = createToolRegistry(stubHost({ status: () => ({ ok: true, result: ame }) }).fn, NO_WAIT);
+  fs.writeFileSync(s.out, 'old run');
+  fs.writeFileSync(path.join(s.dir, 'out.mov'), 'older mov');
+  await reg.callTool('ame_queue', { command: 'file', source: s.src, preset: s.preset, path: s.out, overwrite: true, start: false });
+  const view = async () => text(await reg.callTool('ame_status', {})).jobs[0];
+  assert.strictEqual((await view()).state, 'queued', 'old bytes do not count');
+  assert.deepStrictEqual(text(await reg.callTool('ame_status', { command: 'finished' })).finished, []);
+  await new Promise((r) => setTimeout(r, 15));
+  fs.writeFileSync(s.out, 'new run, different size');
+  assert.strictEqual((await view()).state, 'done', 'a changed file at the exact path is the job\'s');
+  const t = scene();
+  await reg.callTool('ame_queue', { command: 'file', source: t.src, preset: t.preset, path: t.out, start: false });
+  fs.writeFileSync(path.join(t.dir, 'out.mov'), 'made after');
+  const jobs = text(await reg.callTool('ame_status', {})).jobs;
+  assert.strictEqual(jobs[1].outputFile.path, path.join(t.dir, 'out.mov'));
+});
+
+test('a stopped batch and a failed encode are not reported as done, and finished skips them', async () => {
+  const s = scene(); let ame = { isBatchRunning: true, batchStatus: 'running', completed: 0, errors: 0, lastEncodeSuccess: null };
+  const reg = createToolRegistry(stubHost({ status: () => ({ ok: true, result: ame }) }).fn, NO_WAIT);
+  await reg.callTool('ame_queue', { command: 'file', source: s.src, preset: s.preset, path: s.out });
+  fs.writeFileSync(s.out, 'partial');
+  assert.strictEqual(text(await reg.callTool('ame_status', {})).jobs[0].state, 'encoding', 'running means encoding, never done');
+  await reg.callTool('ame_batch', { command: 'stop' });
+  ame = { ...ame, isBatchRunning: false, batchStatus: 'stopped' };
+  assert.strictEqual(text(await reg.callTool('ame_status', {})).jobs[0].state, 'stopped');
+  assert.deepStrictEqual(text(await reg.callTool('ame_status', { command: 'finished' })).finished, []);
+
+  const f = scene();
+  ame = { isBatchRunning: false, batchStatus: 'stopped', completed: 1, errors: 0, lastEncodeSuccess: false };
+  await reg.callTool('ame_queue', { command: 'file', source: f.src, preset: f.preset, path: f.out, start: false });
+  fs.writeFileSync(f.out, 'half a file');
+  const jobs = text(await reg.callTool('ame_status', {})).jobs;
+  assert.strictEqual(jobs[1].state, 'failed');
+  assert.deepStrictEqual(text(await reg.callTool('ame_status', { command: 'finished' })).finished, []);
+});
+
+test('the job registry keeps the newest 200', async () => {
+  const s = scene(); const reg = createToolRegistry(stubHost().fn, NO_WAIT);
+  for (let i = 0; i < 205; i++) await reg.callTool('ame_queue', { command: 'file', source: s.src, preset: s.preset, path: path.join(s.dir, `o${i}.mp4`), start: false });
+  const jobs = text(await reg.callTool('ame_status', {})).jobs;
+  assert.strictEqual(jobs.length, 200);
+  assert.ok(jobs[0].output.endsWith('o5.mp4'));
+});
+
+test('ame_query has no formats command (sessionInfo carries them)', async () => {
+  assert.ok(!TOOLS.find((t) => t.name === 'ame_query').inputSchema.properties.command.enum.includes('formats'));
+  assert.strictEqual((await createToolRegistry(stubHost().fn, NO_WAIT).callTool('ame_query', { command: 'formats' })).isError, true);
 });

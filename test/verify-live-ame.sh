@@ -78,8 +78,8 @@ R="$(tool ame_query '{"command":"presets","match":"H264"}')"
 PRESET="$(echo "$R" | field "next((p for p in r['presets'] if 'Match Source - High bitrate' in p), r['presets'][0] if r['presets'] else '')")"
 [ -n "$PRESET" ] && [ -f "$PRESET" ] && ok "presets lists .epr files that exist ($(basename "$PRESET"))" || { bad "presets" "$R"; done_; }
 
-R="$(tool ame_query '{"command":"formats"}')"
-[ "$(echo "$R" | field "len(r['formats'])")" -gt 0 ] 2>/dev/null && ok "formats is not empty" || bad "formats" "$R"
+R="$(tool ame_query '{"command":"sessionInfo"}')"
+[ "$(echo "$R" | field "len(r['formats'])")" -gt 0 ] 2>/dev/null && ok "sessionInfo lists formats" || bad "formats" "$R"
 
 # ---------- a file through Media Encoder ----------
 ffmpeg -v error -f lavfi -i "testsrc2=size=1280x720:rate=30:duration=2" -c:v libx264 -pix_fmt yuv420p "$WORK/clip.mp4" \

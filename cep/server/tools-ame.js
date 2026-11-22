@@ -21,21 +21,21 @@ const { bridgeInfo } = require('./bridge-info.js');
 const { checkWritePath, listPresets, freeBytes } = require('./tools-premiere.js');
 
 const PROTECTED_ENV = 'AME_MCP_PROTECTED_DIRS';
+const MAX_JOBS = 200;
 
 const TOOLS = [
   {
     name: 'ame_query',
     description:
       'Read Media Encoder.\n\n' +
-      '- sessionInfo: build, batch status, formats, and which Premiere or After Effects bridge carries the calls.\n' +
-      '- formats: the format names Media Encoder knows ("H.264", "QuickTime").\n' +
+      '- sessionInfo: build, batch status, the format names ("H.264", "QuickTime"), and which Premiere or After Effects bridge carries the calls.\n' +
       '- presets: export presets (.epr), filtered by match (e.g. "H264"). Pass the path as preset.\n' +
-      '- compItems: projectPath (an .aep) -> the guid of each comp. Media Encoder gives ids only, no names.\n' +
+      '- compItems: projectPath (an .aep) -> each comp\'s guid and itemId (the After Effects item id ae_query sessionInfo shows). No names.\n' +
       '- describe: this server\'s live schema for one tool ({tool:"ame_queue"}).',
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: ['sessionInfo', 'formats', 'presets', 'compItems', 'describe'] },
+        command: { type: 'string', enum: ['sessionInfo', 'presets', 'compItems', 'describe'] },
         projectPath: { type: 'string' },
         match: { type: 'string' },
         limit: { type: 'number' },
@@ -122,7 +122,8 @@ function minFreeBytes() {
 function expressionLibraries(aepPath) {
   const text = fs.readFileSync(aepPath).toString('latin1');
   const files = new Set();
-  for (const m of text.matchAll(/footage\(\s*(["'])([^"']+?)\1\s*\)\s*\.sourceData/g)) files.add(m[2]);
+  // The footage FILE is what matters, not what the expression does with it on the same line.
+  for (const m of text.matchAll(/footage\(\s*(["'])([^"']+\.(?:jsx?|json))\1/gi)) files.add(m[2]);
   return { files: [...files], evalFile: /\$\.evalFile/.test(text) };
 }
 
@@ -133,19 +134,38 @@ function sha256(file) {
   });
 }
 
-/* Media Encoder may change the extension (some presets write .mov), so match the path or the same name with any extension. */
-function findOutput(want) {
-  const stat = (p) => { try { const s = fs.statSync(p); return s.isFile() ? { path: p, size: s.size, mtimeMs: s.mtimeMs } : null; } catch (e) { return null; } };
-  const exact = stat(want);
-  if (exact) return exact;
+/* Files at the output path, or with the same name and any extension: what was there when the job was queued. */
+function candidates(want) {
   const { dir, name } = nodePath.parse(want);
-  let found = null;
   let kids = [];
-  try { kids = fs.readdirSync(dir); } catch (e) { return null; }
+  try { kids = fs.readdirSync(dir); } catch (e) { return []; }
+  const out = [];
   for (const k of kids) {
     if (nodePath.parse(k).name !== name) continue;
-    const s = stat(nodePath.join(dir, k));
-    if (s && (!found || s.mtimeMs > found.mtimeMs)) found = s;
+    const p = nodePath.join(dir, k);
+    try { const st = fs.statSync(p); if (st.isFile()) out.push({ path: p, size: st.size, mtimeMs: st.mtimeMs, birthMs: st.birthtimeMs || st.mtimeMs }); } catch (e) { /* gone */ }
+  }
+  return out;
+}
+
+const snapshot = (want) => Object.fromEntries(candidates(want).map((c) => [c.path, { size: c.size, mtimeMs: c.mtimeMs }]));
+
+/*
+ * The job's own output. Media Encoder may change the extension (some presets write .mov), so the same name with
+ * any extension counts, but only a file CREATED after the job was queued; the exact path also counts when it was
+ * there already but has changed since (overwrite). A leftover file from an earlier run is never this job's.
+ */
+function findOutput(job) {
+  let found = null;
+  for (const c of candidates(job.output)) {
+    const was = job.baseline[c.path];
+    if (was) {
+      // There when queued: only its own change after that counts (an overwrite), never the old bytes.
+      if (c.path !== job.output || (was.size === c.size && was.mtimeMs === c.mtimeMs) || c.mtimeMs < job.queuedAtMs) continue;
+    } else if (c.path !== job.output && c.birthMs < job.queuedAtMs) {
+      continue; // a same-named file in another format that already existed
+    }
+    if (!found || c.mtimeMs > found.mtimeMs) found = c;
   }
   return found;
 }
@@ -198,7 +218,11 @@ function createToolRegistry(callHost, deps = {}) {
         `${(minFreeBytes() / 1024 ** 3).toFixed(0)} GiB floor (AME_MCP_MIN_FREE_GB). Nothing was queued.`);
     }
     if (a.command === 'comp' && !a.allowExpressionLibrary) {
-      const lib = expressionLibraries(source);
+      let lib;
+      try { lib = expressionLibraries(source); } catch (e) {
+        throw new Error(`expression_library_unchecked: could not scan ${source} for expression libraries (${e.code || e.message}). ` +
+          'Media Encoder would render a comp that reads one frozen. Pass allowExpressionLibrary:true to queue it anyway.');
+      }
       if (lib.files.length || lib.evalFile) {
         const what = [...lib.files.map((f) => `"${f}"`), ...(lib.evalFile ? ['$.evalFile'] : [])].join(', ');
         throw new Error(`expression_library: ${source} reads a data or script file through footage(...).sourceData ` +
@@ -207,45 +231,70 @@ function createToolRegistry(callHost, deps = {}) {
           'Queue (ae_render) instead, or pass allowExpressionLibrary:true to queue it anyway.');
       }
     }
+    const baseline = snapshot(out), queuedAtMs = Date.now();
     const queued = a.command === 'comp'
       ? await host('queueComp', { projectPath: source, guid: a.guid, format: a.format || '', presetPath: a.preset, outputPath: out }, 60000)
       : await host('queueFile', { filePath: source, format: a.format || '', presetPath: a.preset, outputPath: out }, 60000);
     const jobId = `ame-${++seq}-${crypto.randomBytes(3).toString('hex')}`;
-    jobs.set(jobId, { jobId, kind: a.command, source, comp: a.comp || null, guid: a.guid || null, preset: a.preset,
-      output: out, queuedAt: new Date().toISOString(), completedBefore: queued.completedBefore, cleared: false });
-    let started = false;
-    if (a.start !== false) started = !!(await host('start', {})).started;
-    return textContent({ jobId, output: out, started, relay: relay(), freeGiBBefore: Number((have / 1024 ** 3).toFixed(1)) });
+    jobs.set(jobId, { jobId, seq, kind: a.command, source, comp: a.comp || null, guid: a.guid || null, preset: a.preset,
+      output: out, queuedAt: new Date(queuedAtMs).toISOString(), queuedAtMs, baseline, completedBefore: queued.completedBefore,
+      cleared: false, stopped: false });
+    // The registry is for following recent work, not an archive.
+    while (jobs.size > MAX_JOBS) jobs.delete(jobs.keys().next().value);
+    let started = false, startError = null;
+    if (a.start !== false) {
+      // The item is already in Media Encoder's queue, so a failed start must not lose the job.
+      try { started = !!(await host('start', {})).started; } catch (e) { startError = String(e.message || e); }
+    }
+    return textContent({ jobId, output: out, started, ...(startError ? { startError } : {}), relay: relay(),
+      freeGiBBefore: Number((have / 1024 ** 3).toFixed(1)) });
   }
 
-  function jobView(j, ame) {
-    const f = findOutput(j.output);
+  /*
+   * Events carry no item id, so a state is a judgement from the file and the batch. "done" is only ever said
+   * with the batch idle; while it runs, a file is "encoding" however many encodes the counter says finished.
+   * The last encode's success flag can only fault the newest job, so an older finished file is not blamed.
+   */
+  function jobView(j, ame, newest) {
+    const f = findOutput(j);
+    const idle = !ame.isBatchRunning;
     let state = 'queued';
-    if (f && f.size > 0) state = ame.isBatchRunning ? 'encoding' : 'done';
-    else if (j.cleared) state = 'cleared';
-    else if (!ame.isBatchRunning && ame.errors > 0) state = 'failed';
+    if (f && f.size > 0) {
+      if (!idle) state = 'encoding';
+      else if (j.stopped) state = 'stopped';
+      else if (newest && ame.lastEncodeSuccess === false) state = 'failed';
+      else state = 'done';
+    } else if (j.cleared) state = 'cleared';
+    else if (j.stopped) state = 'stopped';
+    else if (idle && (ame.errors > 0 || (newest && ame.lastEncodeSuccess === false))) state = 'failed';
     return { jobId: j.jobId, kind: j.kind, source: j.source, comp: j.comp, preset: j.preset, output: j.output,
       queuedAt: j.queuedAt, state, outputFile: f ? { path: f.path, size: f.size } : null };
   }
 
   async function status(a) {
     const ame = await host('status', {});
+    const newestSeq = Math.max(0, ...[...jobs.values()].map((j) => j.seq));
     let list = [...jobs.values()];
     if (a.jobId) list = list.filter((j) => j.jobId === a.jobId);
     if (a.jobId && !list.length) throw new Error(`unknown_job: no job ${a.jobId}`);
     if (a.command === 'finished') {
-      const before = new Map(list.map((j) => [j.jobId, findOutput(j.output)]));
+      const before = new Map(list.map((j) => [j.jobId, findOutput(j)]));
       await sleep(1000);
       const done = [];
       for (const j of list) {
-        const b = before.get(j.jobId), f = findOutput(j.output);
-        if (!b || !f || f.size === 0 || b.size !== f.size || f.path !== b.path) continue;
+        const b = before.get(j.jobId), f = findOutput(j);
+        if (!b || !f || f.size === 0 || b.size !== f.size || f.path !== b.path || b.mtimeMs !== f.mtimeMs) continue;
+        if (j.stopped || j.cleared || jobView(j, { ...ame, isBatchRunning: false }, j.seq === newestSeq).state !== 'done') continue;
+        // While the batch runs, a stable file plus a rising completed counter is the evidence; the counter alone is not.
         if (ame.isBatchRunning && !(ame.completed > j.completedBefore)) continue;
-        done.push({ jobId: j.jobId, path: f.path, size: f.size, sha256: await sha256(f.path) });
+        const sha = await sha256(f.path);
+        const after = findOutput(j);
+        if (!after || after.size !== f.size || after.mtimeMs !== f.mtimeMs) continue; // still being written
+        done.push({ jobId: j.jobId, path: f.path, size: f.size, sha256: sha });
       }
       return textContent({ finished: done, batchStatus: ame.batchStatus });
     }
-    return textContent({ ame, relay: relay(), jobs: list.map((j) => jobView(j, ame)) });
+    return textContent({ ame, relay: relay(), jobs: list.map((j) => jobView(j, ame, j.seq === newestSeq)) });
   }
 
   function bootLog(n) {
@@ -257,7 +306,6 @@ function createToolRegistry(callHost, deps = {}) {
     ame_query: async (a) => {
       switch (a.command) {
         case 'sessionInfo': return textContent({ ...(await host('info', {})), relay: relay(), bridge: bridgeInfo() });
-        case 'formats': return textContent({ formats: (await host('info', {})).formats });
         case 'presets': return textContent(listPresets(a.match, a.limit || 50, deps.presetRoots));
         case 'compItems':
           mustExist(a.projectPath, 'project');
@@ -276,6 +324,12 @@ function createToolRegistry(callHost, deps = {}) {
       if (!['start', 'pause', 'stop', 'clear'].includes(a.command)) return errorContent(`Unknown ame_batch command ${a.command}`);
       if (a.command === 'clear' && a.all !== true) {
         throw new Error('needs_all: clear empties Media Encoder\'s whole queue, other people\'s items included; pass all:true');
+      }
+      // A stop leaves whatever was being written; what was not already complete cannot be trusted afterwards.
+      if (a.command === 'stop') {
+        const ame = await host('status', {});
+        const newest = Math.max(0, ...[...jobs.values()].map((j) => j.seq));
+        jobs.forEach((j) => { if (jobView(j, ame, j.seq === newest).state !== 'done') j.stopped = true; });
       }
       const res = await host(a.command, {});
       if (a.command === 'clear') jobs.forEach((j) => { j.cleared = true; });
@@ -313,4 +367,4 @@ function createToolRegistry(callHost, deps = {}) {
   };
 }
 
-module.exports = { createToolRegistry, TOOLS, expressionLibraries, findOutput };
+module.exports = { createToolRegistry, TOOLS, expressionLibraries };

@@ -178,7 +178,7 @@ claude mcp add --transport http --scope user ame-vision http://127.0.0.1:8795/mc
 
 | Tool | What it does |
 |---|---|
-| `ame_query` | Session info, formats, export presets, the comp guids in an .aep |
+| `ame_query` | Session info (with formats), export presets, the comp guids in an .aep |
 | `ame_queue` | Queue a comp or a file; refuses a comp that reads an expression library (it would render frozen) |
 | `ame_batch` | Start, pause, stop, clear the queue |
 | `ame_status` | Jobs and batch status; finished files with size and sha256 |

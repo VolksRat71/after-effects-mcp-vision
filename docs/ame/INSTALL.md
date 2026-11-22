@@ -35,8 +35,9 @@ with every call, so there is nothing to reload.
 ## The relay requirement
 
 Premiere Pro or After Effects must be open, with its bridge running and a host
-that has `bridgeTalkSend`. The server tries Premiere (port 8794, then the older
-8793), then After Effects (8791), and remembers the one that worked.
+that has `bridgeTalkSend`. The server tries Premiere (port 8794), then After Effects (8791), checks
+that the port answers as that app before sending anything, and remembers the
+one that worked. It never uses 8793, which belongs to SAM UI.
 `ame_diagnostics health` names it. A Premiere or After Effects that was already
 open before this version was installed has the old host: run `pr_diagnostics
 reloadHost` (After Effects: `ae_diagnostics reloadHost`) or restart the app.
