@@ -61,7 +61,10 @@ function createRelayCallHost(opts = {}) {
 
   const script = (op, args) => {
     const read = (f) => fs.readFileSync(path.join(HOST_DIR, f), 'utf8');
-    return `${read('json-polyfill.jsx')}\n${read('ame/ops.jsx')}\n__ame_exec(${JSON.stringify(JSON.stringify({ op, args }))});`;
+    const program = `${read('json-polyfill.jsx')}\n${read('ame/ops.jsx')}\n__ame_exec(${JSON.stringify(JSON.stringify({ op, args }))});`;
+    // BridgeTalk doubles every backslash on the way into Media Encoder (measured on 26.0.2), which breaks string
+    // escapes and regexes; percent-encoding leaves none to double.
+    return `eval(decodeURIComponent("${encodeURIComponent(program)}"))`;
   };
 
   // Returns the relay's message id, or throws { skip } when this relay cannot serve and the next should be tried.

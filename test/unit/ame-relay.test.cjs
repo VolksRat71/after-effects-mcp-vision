@@ -154,3 +154,18 @@ test('a relay with no token file is skipped', async () => {
     assert.match(r.error.message, /no token file/);
   } finally { pr.close(); }
 });
+
+test('the body survives BridgeTalk doubling every backslash, whatever the args hold', async () => {
+  const pr = await fakeBridge('premiere');
+  try {
+    const call = createRelayCallHost({ relays: relays(pr), pollMs: 5 });
+    const realRun = runBody;
+    const r = await call('info', { path: 'C:\\a "b"\nc\u2028d' }, 5000);
+    assert.strictEqual(r.ok, true, JSON.stringify(r));
+    const sent = pr.seen.bodies[0];
+    assert.ok(!sent.includes('\\'), 'no backslash left for BridgeTalk to double');
+    // Run it the way Media Encoder receives it (measured on 26.0.2): every backslash doubled.
+    const out = JSON.parse(realRun(sent.replace(/\\/g, '\\\\')));
+    assert.strictEqual(out.ok, true);
+  } finally { pr.close(); }
+});
