@@ -19,7 +19,12 @@ if (typeof JSON === 'undefined') {
             return String(obj);
         }
         if (type === 'string') {
-            return '"' + obj.replace(/[\\"]/g, '\\$&').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t') + '"';
+            return '"' + obj.replace(/[\\"]/g, '\\$&').replace(/[\x00-\x1f]/g, function (c) {
+                if (c === '\n') { return '\\n'; }
+                if (c === '\r') { return '\\r'; }
+                if (c === '\t') { return '\\t'; }
+                return '\\u00' + (c.charCodeAt(0) < 16 ? '0' : '') + c.charCodeAt(0).toString(16);
+            }) + '"';
         }
         if (obj instanceof Array) {
             var arr = [];

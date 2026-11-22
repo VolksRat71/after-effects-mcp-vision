@@ -23,12 +23,11 @@ function tokenFileFor(profile) {
   return path.join(process.env[profile.tokenDirEnv] || profile.tokenDir, 'token');
 }
 
-// Premiere first (its port moved from 8793 to 8794; a running older copy still answers on 8793), then After Effects.
+// Premiere first, then After Effects. Never 8793: that port belongs to SAM UI, and Premiere's token must not be sent there.
 function defaultRelays() {
   const pr = PROFILES.PPRO, ae = PROFILES.AEFT;
   return [
     { name: 'premiere', port: Number(process.env[pr.portEnv] || pr.port), service: pr.service, tokenFile: tokenFileFor(pr) },
-    { name: 'premiere-legacy-8793', port: 8793, service: pr.service, tokenFile: tokenFileFor(pr) },
     { name: 'after-effects', port: Number(process.env[ae.portEnv] || ae.port), service: ae.service, tokenFile: tokenFileFor(ae) },
   ];
 }
@@ -67,14 +66,29 @@ function createRelayCallHost(opts = {}) {
     return `eval(decodeURIComponent("${encodeURIComponent(program)}"))`;
   };
 
-  // Returns the relay's message id, or throws { skip } when this relay cannot serve and the next should be tried.
+  /*
+   * Returns the relay's message id. Throws { skip } when nothing was sent and the next relay should be tried
+   * (no token, refused connection, wrong service, host without bridgeTalkSend). Any other failure AFTER the
+   * health check passed throws { fail }: the relay may still deliver the message late, so trying the next one
+   * could run a queue call twice.
+   */
   async function send(relay, body, timeoutMs) {
     let token;
     try { token = fs.readFileSync(relay.tokenFile, 'utf8').trim(); } catch (e) { throw { skip: `${relay.name}: no token file` }; }
-    let health;
-    try { health = await request(relay.port, 'GET', '/health', token); } catch (e) { throw { skip: `${relay.name}: not answering on ${relay.port}` }; }
-    if (!health || health.service !== relay.service) throw { skip: `${relay.name}: port ${relay.port} is ${health && health.service ? health.service : 'not ' + relay.service}` };
-    const res = await request(relay.port, 'POST', '/rpc', token, { op: 'bridgeTalkSend', args: { target: 'ame', body, timeoutMs } }, 10000);
+    // The service check happens before the token goes anywhere; once a relay has passed it, it is not re-probed.
+    if (relay !== last) {
+      let health;
+      try { health = await request(relay.port, 'GET', '/health', token); } catch (e) { throw { skip: `${relay.name}: not answering on ${relay.port}` }; }
+      if (!health || health.service !== relay.service) throw { skip: `${relay.name}: port ${relay.port} is ${health && health.service ? health.service : 'not ' + relay.service}` };
+    }
+    let res;
+    try {
+      res = await request(relay.port, 'POST', '/rpc', token, { op: 'bridgeTalkSend', args: { target: 'ame', body, timeoutMs } }, 10000);
+    } catch (e) {
+      if (relay === last) last = null;
+      if (e && e.code === 'ECONNREFUSED') throw { skip: `${relay.name}: not answering on ${relay.port}` };
+      throw { fail: { code: 'relay_lost', message: `${relay.name} did not confirm the send (${e.message}); it may still arrive, so it was not retried elsewhere` } };
+    }
     if (res.ok) return { token, id: res.result.id };
     const e = res.error || {};
     if (e.code === 'unknown_op' || e.code === 'unauthorized' || e.code === 'evalscript_error') {
@@ -92,6 +106,7 @@ function createRelayCallHost(opts = {}) {
       try {
         sent = await send(relay, body, timeoutMs + 5000);
       } catch (e) {
+        if (e && e.skip && relay === last) last = null;
         if (e && e.fail) return { ok: false, error: e.fail };
         why.push(e && e.skip ? e.skip : String(e));
         continue;

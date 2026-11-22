@@ -98,3 +98,15 @@ test('batch controls drive the encoder; bad input and unknown ops are serialised
   assert.strictEqual(run('queueFile', { filePath: '', presetPath: '/p', outputPath: '/o' }).error.code, 'bad_value');
   assert.strictEqual(run('nope').error.code, 'unknown_op');
 });
+
+test('a failed listener registration is retried on the next call, not remembered as done', () => {
+  const world = fakeAme();
+  const fe = world.app.getFrontend;
+  let broken = true;
+  world.app.getFrontend = () => { if (broken) throw new Error('not ready'); return fe(); };
+  const run = engine(world);
+  assert.strictEqual(run('status').ok, false);
+  broken = false;
+  assert.strictEqual(run('status').ok, true);
+  assert.ok(world.listeners.length >= 5, 'registered on the retry');
+});

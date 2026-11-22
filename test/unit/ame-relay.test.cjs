@@ -11,7 +11,7 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
-const { createRelayCallHost } = require('../../cep/server/ame-relay.js');
+const { createRelayCallHost, defaultRelays } = require('../../cep/server/ame-relay.js');
 
 const fakeAme = () => ({
   buildNumber: '26.0.2.1',
@@ -22,7 +22,8 @@ const fakeAme = () => ({
 
 function runBody(body) {
   const ctx = { app: fakeAme(), $: { global: {} } };
-  return vm.runInNewContext(body, ctx);
+  // Media Encoder receives every backslash doubled (measured on 26.0.2); the fake does the same to every body.
+  return vm.runInNewContext(body.replace(/\\/g, '\\\\'), ctx);
 }
 
 /** A fake bridge. opts: service, token, knowsSend, pendingPolls, resultState, resultBody */
@@ -30,17 +31,18 @@ async function fakeBridge(name, opts = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ame-relay-'));
   const tokenFile = path.join(dir, 'token');
   fs.writeFileSync(tokenFile, 'tok-' + name);
-  const seen = { sends: 0, polls: 0, bodies: [], targets: [] };
+  const seen = { healths: 0, sends: 0, polls: 0, bodies: [], targets: [] };
   const server = http.createServer((req, res) => {
     let raw = '';
     req.on('data', (c) => { raw += c; });
     req.on('end', () => {
       const reply = (o) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(o)); };
       if (req.headers.authorization !== 'Bearer tok-' + name) { res.statusCode = 401; return reply({ ok: false, error: { code: 'unauthorized' } }); }
-      if (req.url === '/health') return reply({ ok: true, service: opts.service || name });
+      if (req.url === '/health') { seen.healths++; } if (req.url === '/health') return reply({ ok: true, service: opts.service || name });
       const { op, args } = JSON.parse(raw);
       if (op === 'bridgeTalkSend') {
         if (opts.knowsSend === false) return reply({ ok: false, error: { code: 'unknown_op', message: 'No such op: bridgeTalkSend' } });
+        if (opts.dropSend) { seen.sends++; return req.socket.destroy(); }
         if (opts.sendError) return reply({ ok: false, error: opts.sendError });
         seen.sends++; seen.bodies.push(args.body); seen.targets.push(args.target);
         return reply({ ok: true, result: { id: 'id1' } });
@@ -164,8 +166,45 @@ test('the body survives BridgeTalk doubling every backslash, whatever the args h
     assert.strictEqual(r.ok, true, JSON.stringify(r));
     const sent = pr.seen.bodies[0];
     assert.ok(!sent.includes('\\'), 'no backslash left for BridgeTalk to double');
-    // Run it the way Media Encoder receives it (measured on 26.0.2): every backslash doubled.
-    const out = JSON.parse(realRun(sent.replace(/\\/g, '\\\\')));
+    const out = JSON.parse(realRun(sent));
     assert.strictEqual(out.ok, true);
   } finally { pr.close(); }
+});
+
+test('the default relays are Premiere and After Effects only; SAM UI\'s 8793 never gets a token', () => {
+  assert.deepStrictEqual(defaultRelays().map((r) => r.name), ['premiere', 'after-effects']);
+  assert.ok(!defaultRelays().some((r) => r.port === 8793));
+});
+
+test('a relay is health-checked once, then reused without probing', async () => {
+  const pr = await fakeBridge('premiere');
+  try {
+    const call = createRelayCallHost({ relays: relays(pr), pollMs: 5 });
+    await call('ping', {}, 2000); await call('ping', {}, 2000); await call('ping', {}, 2000);
+    assert.strictEqual(pr.seen.healths, 1);
+    assert.strictEqual(pr.seen.sends, 3);
+  } finally { pr.close(); }
+});
+
+test('a send that fails after the health check passed is relay_lost and is NOT retried on the next relay', async () => {
+  const pr = await fakeBridge('premiere', { dropSend: true });
+  const ae = await fakeBridge('after-effects');
+  try {
+    const call = createRelayCallHost({ relays: relays(pr, ae), pollMs: 5 });
+    const r = await call('queueFile', {}, 2000);
+    assert.strictEqual(r.error.code, 'relay_lost');
+    assert.strictEqual(ae.seen.sends, 0, 'the first relay may still deliver it, so the second must not');
+    assert.strictEqual(call.lastRelay(), null);
+  } finally { pr.close(); ae.close(); }
+});
+
+test('a remembered relay that has gone away (connection refused) falls through to the next', async () => {
+  const pr = await fakeBridge('premiere'); const ae = await fakeBridge('after-effects');
+  const call = createRelayCallHost({ relays: relays(pr, ae), pollMs: 5 });
+  await call('ping', {}, 2000);
+  pr.close(); await new Promise((r) => setTimeout(r, 20));
+  try {
+    assert.strictEqual((await call('ping', {}, 2000)).ok, true);
+    assert.strictEqual(call.lastRelay().name, 'after-effects');
+  } finally { ae.close(); }
 });

@@ -17,9 +17,11 @@ var __ame_ops = {};
 function __ame_state() {
     var g = $.global;
     if (!g.__ame_st) {
-        g.__ame_st = { added: 0, started: 0, completed: 0, lastEncodeSuccess: null, errors: 0, lastError: null,
+        var st = { added: 0, started: 0, completed: 0, lastEncodeSuccess: null, errors: 0, lastError: null,
                        progressEvents: 0, lastProgressAt: null, statusChanges: 0, lastStatus: null, recent: [] };
-        __ame_listen(g.__ame_st);
+        __ame_listen(st);
+        // Only after registration worked: a failed attempt must be retried on the next call.
+        g.__ame_st = st;
     }
     return g.__ame_st;
 }

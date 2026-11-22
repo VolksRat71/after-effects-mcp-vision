@@ -75,3 +75,15 @@ test('both the Premiere and After Effects hosts include and register the ops', (
     assert.match(fs.readFileSync(path.join(HOST, dir, tableList), 'utf8'), /__mcp_bridgeTalkOps\]/, dir);
   }
 });
+
+test('the shared JSON polyfill escapes every control character, so any error text stays valid JSON', () => {
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(HOST, 'json-polyfill.jsx'), 'utf8'), ctx);
+  const poly = vm.runInContext('JSON', ctx);
+  const all = Array.from({ length: 32 }, (_, i) => String.fromCharCode(i)).join('') + 'plain "q" \\ é';
+  const out = poly.stringify({ m: all });
+  assert.strictEqual(JSON.parse(out).m, all);
+  assert.ok(!/[\x00-\x1f]/.test(out));
+  assert.strictEqual(poly.stringify('a\nb\tc'), '"a\\nb\\tc"', 'normal strings come out as before');
+});
