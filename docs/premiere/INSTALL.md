@@ -6,10 +6,14 @@ Illustrator ones. Premiere loads its own copy and runs its own server.
 | | |
 |---|---|
 | Premiere Pro | 2026 (26.0) or later; written against 26.0.2 |
-| Port | `127.0.0.1:8793` (`PREMIERE_MCP_PORT` overrides) |
+| Port | `127.0.0.1:8794` (`PREMIERE_MCP_PORT` overrides) |
 | Token | `~/.premiere-mcp-vision/token` (`PREMIERE_MCP_TOKEN_DIR` overrides) |
 | Panel | Window > Extensions > Premiere MCP Vision |
 | Boot log | `$TMPDIR/premiere-mcp-vision/boot.log` |
+
+The port was 8793 until 2026-11-21. It moved because the SAM UI desktop app's
+agent server also defaults to 8793. A client registered at 8793 needs
+re-adding at 8794, and Premiere needs a restart to pick up the new default.
 
 ## Install
 
@@ -21,7 +25,7 @@ unsigned extension loads. Quit Premiere first: CEP reads extensions at launch.
 ## Connect a client
 
 ```bash
-claude mcp add --transport http --scope user premiere-vision http://127.0.0.1:8793/mcp --header "Authorization: Bearer $(cat ~/.premiere-mcp-vision/token)"
+claude mcp add --transport http --scope user premiere-vision http://127.0.0.1:8794/mcp --header "Authorization: Bearer $(cat ~/.premiere-mcp-vision/token)"
 ```
 
 ## Optional guards
@@ -38,7 +42,7 @@ Read from the environment Premiere was started with (on macOS,
 ## When the server does not answer
 
 1. Is Premiere running? The server lives inside it.
-2. `curl -s -H "Authorization: Bearer $(cat ~/.premiere-mcp-vision/token)" http://127.0.0.1:8793/health`
+2. `curl -s -H "Authorization: Bearer $(cat ~/.premiere-mcp-vision/token)" http://127.0.0.1:8794/health`
    should report `"service":"premiere-mcp-vision"` and `"reachable":true`.
 3. No token file means the headless extension never started. On 26.0.2 it
    starts by itself about 20 seconds after launch (measured); if it has not,

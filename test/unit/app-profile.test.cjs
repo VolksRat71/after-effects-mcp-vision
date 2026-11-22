@@ -68,7 +68,7 @@ test('Illustrator gets its own port, token folder, service name, tools and resou
 
 test('Premiere Pro gets its own port, token folder, service name, tools and resources', () => {
   const out = probe('PPRO', SNAPSHOT);
-  assert.strictEqual(out.port, 8793);
+  assert.strictEqual(out.port, 8794);
   assert.strictEqual(out.tokenDirName, '.premiere-mcp-vision');
   assert.strictEqual(out.service, 'premiere-mcp-vision');
   assert.ok(out.tools.every((n) => n.startsWith('pr_')) && out.tools.length === 12);

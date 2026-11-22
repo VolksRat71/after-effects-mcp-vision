@@ -124,14 +124,14 @@ and [docs/illustrator/RECIPES.md](docs/illustrator/RECIPES.md), also served as
 ## Premiere Pro
 
 The same extension also runs inside **Adobe Premiere Pro 2026 (26.0) or later**
-(verified live on 26.0.2: `test/verify-live-premiere.sh` 37/37). Premiere listens on `127.0.0.1:8793`, keeps its token
+(verified live on 26.0.2: `test/verify-live-premiere.sh` 37/37). Premiere listens on `127.0.0.1:8794`, keeps its token
 in `~/.premiere-mcp-vision/token`, and shows **Window > Extensions > Premiere
 MCP Vision**. It is ExtendScript through CEP, like the other two apps; a UXP
 port is needed before Adobe turns CEP off by default (announced for December
 2028).
 
 ```bash
-claude mcp add --transport http --scope user premiere-vision http://127.0.0.1:8793/mcp --header "Authorization: Bearer $(cat ~/.premiere-mcp-vision/token)"
+claude mcp add --transport http --scope user premiere-vision http://127.0.0.1:8794/mcp --header "Authorization: Bearer $(cat ~/.premiere-mcp-vision/token)"
 ```
 
 Twelve tools. Project items and timeline clips are addressed by `nodeId`,

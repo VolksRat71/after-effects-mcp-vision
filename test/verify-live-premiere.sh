@@ -17,7 +17,7 @@
 
 set -uo pipefail
 
-PORT="${PREMIERE_MCP_PORT:-8793}"
+PORT="${PREMIERE_MCP_PORT:-8794}"
 TOKEN_FILE="$HOME/.premiere-mcp-vision/token"
 PASS=0; FAIL=0
 

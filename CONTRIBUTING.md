@@ -30,7 +30,7 @@ The extension is listed for After Effects (`AEFT`), Illustrator (`ILST`) and
 Premiere Pro (`PPRO`).
 Each app loads its own copy in its own process, so each runs its own server.
 What differs per app is decided in one place, `cep/server/app-profile.js`:
-port (8791 / 8792 / 8793), token folder, service name, tool file (`tools.js` /
+port (8791 / 8792 / 8794; 8793 is left to SAM UI), token folder, service name, tool file (`tools.js` /
 `tools-illustrator.js` / `tools-premiere.js`), MCP instructions and doc resources. The manifest gives
 each host its own `DispatchInfo`, which is how each app gets its own
 `host/<app>/host.jsx` and panel menu name. Everything else - HTTP, auth, the

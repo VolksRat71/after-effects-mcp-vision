@@ -116,7 +116,7 @@ const PROFILES = {
     appName: 'Premiere Pro',
     service: 'premiere-mcp-vision',
     clientName: 'premiere-vision',
-    port: 8793,
+    port: 8794,
     portEnv: 'PREMIERE_MCP_PORT',
     tokenDir: path.join(os.homedir(), '.premiere-mcp-vision'),
     tokenDirEnv: 'PREMIERE_MCP_TOKEN_DIR',
