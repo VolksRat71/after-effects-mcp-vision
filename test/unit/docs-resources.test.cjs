@@ -32,8 +32,9 @@ test('resources resolve in the packaged layout, not just a dev checkout', () => 
     }
     fs.mkdirSync(path.join(ext, 'docs', 'illustrator'), { recursive: true });
     fs.mkdirSync(path.join(ext, 'docs', 'premiere'), { recursive: true });
+    fs.mkdirSync(path.join(ext, 'docs', 'ame'), { recursive: true });
     for (const f of ['INSTALL.md', 'RECIPES.md', 'CAPABILITIES.md', 'illustrator/INSTALL.md', 'illustrator/RECIPES.md',
-      'premiere/INSTALL.md', 'premiere/RECIPES.md']) {
+      'premiere/INSTALL.md', 'premiere/RECIPES.md', 'ame/INSTALL.md', 'ame/RECIPES.md']) {
       fs.copyFileSync(path.join(__dirname, '..', '..', 'docs', f), path.join(ext, 'docs', f));
     }
     const packaged = require(path.join(ext, 'server', 'docs.js'));
@@ -56,9 +57,9 @@ test('resources resolve in the packaged layout, not just a dev checkout', () => 
 test('every packager ships docs/ into the extension', () => {
   const root = path.join(__dirname, '..', '..');
   const checks = {
-    'scripts/build-zxp.sh': /docs\/\*\.md[\s\S]*docs\/illustrator[\s\S]*docs\/premiere/,
-    'scripts/build-dmg.sh': /docs\/\*\.md[\s\S]*docs\/illustrator[\s\S]*docs\/premiere/,
-    'scripts/installer/windows-installer.iss': /docs\\\*\.md[\s\S]*docs\\illustrator[\s\S]*docs\\premiere/,
+    'scripts/build-zxp.sh': /docs\/\*\.md[\s\S]*docs\/illustrator[\s\S]*docs\/premiere[\s\S]*docs\/ame/,
+    'scripts/build-dmg.sh': /docs\/\*\.md[\s\S]*docs\/illustrator[\s\S]*docs\/premiere[\s\S]*docs\/ame/,
+    'scripts/installer/windows-installer.iss': /docs\\\*\.md[\s\S]*docs\\illustrator[\s\S]*docs\\premiere[\s\S]*docs\\ame/,
   };
   for (const [f, re] of Object.entries(checks)) {
     assert.match(fs.readFileSync(path.join(root, f), 'utf8'), re, `${f} must copy docs/*.md into the package`);

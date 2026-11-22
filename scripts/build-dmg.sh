@@ -39,6 +39,8 @@ mkdir -p "$APP/Contents/Resources/payload/docs/illustrator"
 cp "$ROOT"/docs/illustrator/*.md "$APP/Contents/Resources/payload/docs/illustrator/"
 mkdir -p "$APP/Contents/Resources/payload/docs/premiere"
 cp "$ROOT"/docs/premiere/*.md "$APP/Contents/Resources/payload/docs/premiere/"
+mkdir -p "$APP/Contents/Resources/payload/docs/ame"
+cp "$ROOT"/docs/ame/*.md "$APP/Contents/Resources/payload/docs/ame/"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

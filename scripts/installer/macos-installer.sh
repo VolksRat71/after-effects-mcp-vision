@@ -43,6 +43,12 @@ if /usr/bin/pgrep -f "/Contents/MacOS/Adobe Premiere Pro" >/dev/null 2>&1; then
   exit 1
 fi
 
+# And into Media Encoder.
+if /usr/bin/pgrep -f "/Contents/MacOS/Adobe Media Encoder" >/dev/null 2>&1; then
+  /usr/bin/osascript -e 'display dialog "Please quit Adobe Media Encoder first, then run this installer again.\n\nMedia Encoder loads extensions when it starts, so it needs to be closed during installation." buttons {"OK"} default button 1 with title "AE MCP Vision" with icon caution' >/dev/null 2>&1
+  exit 1
+fi
+
 mkdir -p "$DEST_DIR" || fail "Could not create:\n$DEST_DIR"
 
 # Replace a previous install, but never blindly delete something unexpected.

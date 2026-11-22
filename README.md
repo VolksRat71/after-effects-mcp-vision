@@ -163,6 +163,32 @@ space a render needs, default 15). Premiere docs:
 [docs/premiere/RECIPES.md](docs/premiere/RECIPES.md), also served as
 `premiere-vision://install` and `premiere-vision://recipes`.
 
+## Media Encoder
+
+The same extension also runs inside **Adobe Media Encoder 2026 (26.0) or later**
+as a headless server (no panel) on `127.0.0.1:8795`, with its token in
+`~/.ame-mcp-vision/token`. Media Encoder gives extensions no ExtendScript, so
+the server reaches it by relay: its scripts go through the Premiere Pro or After
+Effects bridge (one of them must be open) and on to Media Encoder over
+BridgeTalk. `docs/ame/INSTALL.md` has the measurements behind that.
+
+```bash
+claude mcp add --transport http --scope user ame-vision http://127.0.0.1:8795/mcp --header "Authorization: Bearer $(cat ~/.ame-mcp-vision/token)"
+```
+
+| Tool | What it does |
+|---|---|
+| `ame_query` | Session info, formats, export presets, the comp guids in an .aep |
+| `ame_queue` | Queue a comp or a file; refuses a comp that reads an expression library (it would render frozen) |
+| `ame_batch` | Start, pause, stop, clear the queue |
+| `ame_status` | Jobs and batch status; finished files with size and sha256 |
+| `ame_diagnostics` | Health (which relay, Media Encoder build), recent errors |
+
+Guards: `AME_MCP_PROTECTED_DIRS` and `AME_MCP_MIN_FREE_GB` (default 15), as for
+Premiere. Docs: [docs/ame/INSTALL.md](docs/ame/INSTALL.md) and
+[docs/ame/RECIPES.md](docs/ame/RECIPES.md), also served as `ame-vision://install`
+and `ame-vision://recipes`. Check a live setup with `test/verify-live-ame.sh`.
+
 ## Documentation
 
 | | For |

@@ -47,6 +47,8 @@ mkdir -p "$STAGE/docs/illustrator"
 cp "$ROOT"/docs/illustrator/*.md "$STAGE/docs/illustrator/"
 mkdir -p "$STAGE/docs/premiere"
 cp "$ROOT"/docs/premiere/*.md "$STAGE/docs/premiere/"
+mkdir -p "$STAGE/docs/ame"
+cp "$ROOT"/docs/ame/*.md "$STAGE/docs/ame/"
 
 # The manifest version comes from cep/CSXS/manifest.xml itself, kept in step
 # with package.json by scripts/sync-version.mjs (run by `npm version`) and

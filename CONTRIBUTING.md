@@ -12,6 +12,8 @@ cep/
   host/ae/            ExtendScript that runs inside After Effects
   host/ai/            ExtendScript that runs inside Illustrator
   host/pr/            ExtendScript that runs inside Premiere Pro
+  host/ame/           ExtendScript for Media Encoder, sent to it by relay (it has no host of its own)
+  host/bridgetalk.jsx relay ops shared by the Premiere and After Effects hosts
   host/json-polyfill.jsx  shared by both hosts
 test/
   unit/               runs anywhere, gates CI
@@ -27,7 +29,8 @@ make here.
 ## More than one app
 
 The extension is listed for After Effects (`AEFT`), Illustrator (`ILST`) and
-Premiere Pro (`PPRO`).
+Premiere Pro (`PPRO`). Media Encoder (`AME`) runs only a server, with no panel and no
+ExtendScript of its own; `profile.relay` makes it send its scripts through Premiere or After Effects.
 Each app loads its own copy in its own process, so each runs its own server.
 What differs per app is decided in one place, `cep/server/app-profile.js`:
 port (8791 / 8792 / 8794; 8793 is left to SAM UI), token folder, service name, tool file (`tools.js` /
@@ -96,6 +99,7 @@ npm run test:integration # against a live After Effects
 ./test/verify-live.sh    # against a running extension, nothing stubbed
 ./test/verify-live-illustrator.sh   # the same, against Illustrator
 ./test/verify-live-premiere.sh      # the same, against Premiere Pro, plus the FCP7 XML probe
+./test/verify-live-ame.sh           # the same, against Media Encoder (needs Premiere or After Effects open as the relay)
 ```
 
 `npm run lint` and `npm test` gate CI. The integration suite cannot — no hosted

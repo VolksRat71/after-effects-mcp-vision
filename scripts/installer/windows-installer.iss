@@ -41,6 +41,7 @@ Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\docs\*.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\..\docs\illustrator\*.md"; DestDir: "{app}\docs\illustrator"; Flags: ignoreversion
 Source: "..\..\docs\premiere\*.md"; DestDir: "{app}\docs\premiere"; Flags: ignoreversion
+Source: "..\..\docs\ame\*.md"; DestDir: "{app}\docs\ame"; Flags: ignoreversion
 
 [Registry]
 ; Unsigned extensions require PlayerDebugMode, set per CSXS major version.
@@ -93,6 +94,18 @@ begin
     begin
       SuppressibleMsgBox('Please quit Premiere Pro first, then run this installer again.'#13#10#13#10 +
              'Premiere Pro loads extensions when it starts, so it needs to be closed during installation.',
+             mbError, MB_OK, IDOK);
+      Result := False;
+    end;
+  end;
+  // And into Media Encoder.
+  if Result and Exec('cmd.exe', '/C tasklist /FI "IMAGENAME eq Adobe Media Encoder.exe" | find /I "Adobe Media Encoder.exe"',
+          '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    if ResultCode = 0 then
+    begin
+      SuppressibleMsgBox('Please quit Adobe Media Encoder first, then run this installer again.'#13#10#13#10 +
+             'Media Encoder loads extensions when it starts, so it needs to be closed during installation.',
              mbError, MB_OK, IDOK);
       Result := False;
     end;
