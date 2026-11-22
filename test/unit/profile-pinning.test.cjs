@@ -23,6 +23,7 @@ function run(app, script, extraEnv = {}) {
   if (!('AE_MCP_TOKEN_DIR' in extraEnv)) delete env.AE_MCP_TOKEN_DIR;
   if (!('ILLUSTRATOR_MCP_TOKEN_DIR' in extraEnv)) delete env.ILLUSTRATOR_MCP_TOKEN_DIR;
   if (!('PREMIERE_MCP_TOKEN_DIR' in extraEnv)) delete env.PREMIERE_MCP_TOKEN_DIR;
+  if (!('AME_MCP_TOKEN_DIR' in extraEnv)) delete env.AME_MCP_TOKEN_DIR;
   const out = execFileSync(process.execPath, ['-e', `const S = ${JSON.stringify(SERVER + path.sep)};\n${script}`], { env });
   return JSON.parse(out.toString());
 }
@@ -33,6 +34,7 @@ test('each app resolves its own real token file', () => {
   assert.strictEqual(run('AEFT', TOKEN), path.join(os.homedir(), '.ae-mcp-vision', 'token'));
   assert.strictEqual(run('ILST', TOKEN), path.join(os.homedir(), '.illustrator-mcp-vision', 'token'));
   assert.strictEqual(run('PPRO', TOKEN), path.join(os.homedir(), '.premiere-mcp-vision', 'token'));
+  assert.strictEqual(run('AME', TOKEN), path.join(os.homedir(), '.ame-mcp-vision', 'token'));
 });
 
 const HEALTH = (pong) => `

@@ -19,7 +19,8 @@ const ROOT = path.join(__dirname, '..', '..');
 function probe(app, script) {
   const env = { ...process.env, AE_MCP_TOKEN_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-profile-')),
                 ILLUSTRATOR_MCP_TOKEN_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-profile-')),
-                PREMIERE_MCP_TOKEN_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-profile-')) };
+                PREMIERE_MCP_TOKEN_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-profile-')),
+                AME_MCP_TOKEN_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-profile-')) };
   if (app) env.MCP_HOST_APP = app; else delete env.MCP_HOST_APP;
   return JSON.parse(execFileSync(process.execPath, ['-e', script], { cwd: ROOT, env }).toString());
 }
@@ -77,6 +78,19 @@ test('Premiere Pro gets its own port, token folder, service name, tools and reso
   assert.strictEqual(out.hostJsx, path.join('host', 'pr', 'host.jsx'));
 });
 
+test('Media Encoder gets its own port, token folder, service name, tools and resources, and relays', () => {
+  const out = probe('AME', SNAPSHOT);
+  assert.strictEqual(out.port, 8795);
+  assert.strictEqual(out.tokenDirName, '.ame-mcp-vision');
+  assert.strictEqual(out.service, 'ame-mcp-vision');
+  assert.ok(out.tools.every((n) => n.startsWith('ame_')) && out.tools.length === 5);
+  assert.deepStrictEqual(out.resources, ['ame-vision://recipes', 'ame-vision://install']);
+  assert.match(out.instructions, /ame_diagnostics/);
+  assert.strictEqual(out.hostJsx, path.join('host', 'ame', 'ops.jsx'));
+  const { PROFILES } = require('../../cep/server/app-profile.js');
+  assert.deepStrictEqual(Object.values(PROFILES).filter((p) => p.relay).map((p) => p.id), ['AME'], 'only Media Encoder relays');
+});
+
 test('an unknown host app fails loudly rather than serving the wrong tools', () => {
   assert.throws(() => probe('PHXS', SNAPSHOT), /No MCP profile for host app PHXS/);
 });
@@ -91,12 +105,16 @@ test('every profile\'s docs exist on disk', () => {
   }
 });
 
+const SERVER_ONLY = new Set(['AME']);
+
 test('the manifest gives each host its own ExtendScript entry point', () => {
   const xml = fs.readFileSync(path.join(ROOT, 'cep/CSXS/manifest.xml'), 'utf8');
   const { PROFILES } = require('../../cep/server/app-profile.js');
   for (const p of Object.values(PROFILES)) {
     const blocks = [...xml.matchAll(new RegExp(`<DispatchInfo Host="${p.id}">([\\s\\S]*?)</DispatchInfo>`, 'g'))];
-    assert.strictEqual(blocks.length, 2, `${p.id} needs a server and a panel DispatchInfo`);
+    // Media Encoder is server-only on purpose: it has no Window > Extensions menu, so no panel can exist there.
+    const want = SERVER_ONLY.has(p.id) ? 1 : 2;
+    assert.strictEqual(blocks.length, want, `${p.id} needs ${want === 1 ? 'a server' : 'a server and a panel'} DispatchInfo`);
     for (const b of blocks) {
       assert.match(b[1], new RegExp(`<ScriptPath>\\./${p.hostJsx.replace(/\\/g, '/').replace(/\./g, '\\.')}</ScriptPath>`));
     }

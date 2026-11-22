@@ -21,7 +21,7 @@
           // Effects keeps its original folder.
           var app = null;
           try { app = JSON.parse(window.__adobe_cep__.getHostEnvironment()).appName; } catch (x) {}
-          var dir = path.join(os.tmpdir(), { ILST: 'illustrator-mcp-vision', PPRO: 'premiere-mcp-vision' }[app] || 'ae-mcp-vision');
+          var dir = path.join(os.tmpdir(), { ILST: 'illustrator-mcp-vision', PPRO: 'premiere-mcp-vision', AME: 'ame-mcp-vision' }[app] || 'ae-mcp-vision');
           fs.mkdirSync(dir, { recursive: true });
           fs.appendFileSync(path.join(dir, 'boot.log'),
             new Date().toISOString() + ' ' + msg + '\n');

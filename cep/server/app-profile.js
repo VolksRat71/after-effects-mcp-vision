@@ -152,6 +152,45 @@ const PROFILES = {
       },
     ],
   },
+  AME: {
+    id: 'AME',
+    appName: 'Media Encoder',
+    service: 'ame-mcp-vision',
+    clientName: 'ame-vision',
+    port: 8795,
+    portEnv: 'AME_MCP_PORT',
+    tokenDir: path.join(os.homedir(), '.ame-mcp-vision'),
+    tokenDirEnv: 'AME_MCP_TOKEN_DIR',
+    // Not loaded as a host: Media Encoder gives extensions no ExtendScript. ame-relay.js sends this file through
+    // Premiere or After Effects instead (relay: true).
+    hostJsx: path.join('host', 'ame', 'ops.jsx'),
+    relay: true,
+    tools: './tools-ame.js',
+    instructions:
+      'Drives Adobe Media Encoder. Start with ame_diagnostics health, which also names the Premiere or After ' +
+      'Effects bridge carrying the calls (one of them must be open). Queue a comp or a file with ame_queue, ' +
+      'follow it with ame_status, and take finished files from ame_status finished. Before queueing, read the ' +
+      'resource ame-vision://recipes: Media Encoder renders the SAVED project, and a comp whose expressions read ' +
+      'a script or data file renders frozen there.',
+    resources: [
+      {
+        uri: 'ame-vision://recipes',
+        name: 'Queueing recipes and gotchas',
+        description:
+          'How to queue a comp or a file, find presets, follow the queue and collect finished files, and what ' +
+          'Media Encoder cannot do (expression libraries, per-item identity in its events).',
+        mimeType: 'text/markdown',
+        file: 'ame/RECIPES.md',
+      },
+      {
+        uri: 'ame-vision://install',
+        name: 'Install and troubleshooting',
+        description: 'How the headless Media Encoder server works, why Premiere or After Effects must be open, and what to do when it does not answer.',
+        mimeType: 'text/markdown',
+        file: 'ame/INSTALL.md',
+      },
+    ],
+  },
 };
 
 function detectAppId() {

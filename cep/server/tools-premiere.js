@@ -386,13 +386,13 @@ const TOOLS = [
 
 /* ---------- guards ---------- */
 
-function protectedDirs() {
-  return String(process.env.PREMIERE_MCP_PROTECTED_DIRS || '')
+function protectedDirs(envName) {
+  return String(process.env[envName] || '')
     .split(nodePath.delimiter).map((d) => d.trim()).filter(Boolean).map((d) => nodePath.resolve(d));
 }
 
 /** Throws unless p is absolute and outside every protected folder. Returns the resolved path. */
-function checkWritePath(p, what = 'path') {
+function checkWritePath(p, what = 'path', envName = 'PREMIERE_MCP_PROTECTED_DIRS') {
   if (typeof p !== 'string' || !nodePath.isAbsolute(p)) throw new Error(`bad_value: ${what} must be an absolute path`);
   const full = nodePath.resolve(p);
   let real = full;
@@ -405,7 +405,7 @@ function checkWritePath(p, what = 'path') {
   // macOS and Windows disks are case-insensitive by default, so /Archive and /archive are one folder.
   // shortcut: Windows 8.3 short names and trailing dots are not normalised; add that if Windows renders are protected.
   const fold = process.platform === 'darwin' || process.platform === 'win32' ? (x) => x.normalize('NFC').toLowerCase() : (x) => x;
-  for (const d of protectedDirs()) {
+  for (const d of protectedDirs(envName)) {
     let rd = d;
     try { rd = fs.realpathSync.native(d); } catch (e) { /* keep as given */ }
     for (const cand of [full, real]) {
@@ -413,7 +413,7 @@ function checkWritePath(p, what = 'path') {
       // "..cache" inside the folder is a name, not a step up: only ".." itself or "../" leaves it.
       const outside = rel === '..' || rel.startsWith('..' + nodePath.sep) || nodePath.isAbsolute(rel);
       if (!outside) {
-        throw new Error(`protected: ${what} ${p} is inside protected folder ${d} (PREMIERE_MCP_PROTECTED_DIRS)`);
+        throw new Error(`protected: ${what} ${p} is inside protected folder ${d} (${envName})`);
       }
     }
   }

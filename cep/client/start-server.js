@@ -10,14 +10,16 @@ const { createMcpHandler } = require('../server/mcp.js');
 const { currentProfile } = require('../server/app-profile.js');
 
 const PROFILE = currentProfile();
+// Media Encoder has no ExtendScript of its own: its calls go by relay through Premiere or After Effects.
+const hostCall = PROFILE.relay ? require('../server/ame-relay.js').createRelayCallHost() : callHost;
 // Each app has its own tool surface; the transport underneath is shared.
 const { createToolRegistry } = require(require('path').join(__dirname, '..', 'server', PROFILE.tools));
 
 const PORT = Number(process.env[PROFILE.portEnv] || DEFAULT_PORT);
 
 async function startServer(onLog = () => {}) {
-  const registry = createToolRegistry(callHost);
-  const app = createServer(callHost, {
+  const registry = createToolRegistry(hostCall);
+  const app = createServer(hostCall, {
     port: PORT,
     onLog,
     mcpHandler: createMcpHandler(registry),

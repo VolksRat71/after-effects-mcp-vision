@@ -33,6 +33,11 @@
       <!-- Premiere Pro 26.0 (2026) floor: the version this host was written
            and measured against; earlier builds are not verified. -->
       <Host Name="PPRO" Version="[26.0,99.9]" />
+      <!-- Media Encoder 26.0 (2026) floor: the version this host was written
+           and measured against. Server only; Media Encoder has no
+           Window > Extensions menu for a panel, and gives extensions no
+           ExtendScript, so ops.jsx is sent to it by relay (see ame-relay.js). -->
+      <Host Name="AME" Version="[26.0,99.9]" />
     </HostList>
     <LocaleList><Locale Code="All" /></LocaleList>
     <RequiredRuntimeList>
@@ -120,6 +125,29 @@
           <Geometry><Size><Height>1</Height><Width>1</Width></Size></Geometry>
         </UI>
       </DispatchInfo>
+      <DispatchInfo Host="AME">
+        <Resources>
+          <MainPath>./server.html</MainPath>
+          <ScriptPath>./host/ame/ops.jsx</ScriptPath>
+          <CEFCommandLine>
+            <Parameter>--enable-nodejs</Parameter>
+            <Parameter>--mixed-context</Parameter>
+          </CEFCommandLine>
+        </Resources>
+        <Lifecycle>
+          <AutoVisible>false</AutoVisible>
+          <StartOn>
+            <Event>com.adobe.csxs.events.ApplicationActivate</Event>
+            <Event>applicationActivate</Event>
+            <Event>com.adobe.csxs.events.ApplicationInitialized</Event>
+            <Event>documentAfterActivate</Event>
+          </StartOn>
+        </Lifecycle>
+        <UI>
+          <Type>Custom</Type>
+          <Geometry><Size><Height>1</Height><Width>1</Width></Size></Geometry>
+        </UI>
+      </DispatchInfo>
     </Extension>
 
     <Extension Id="com.aemcpvision.bridge.panel">
@@ -178,6 +206,7 @@
         </UI>
       </DispatchInfo>
     </Extension>
+
 
   </DispatchInfoList>
 </ExtensionManifest>
