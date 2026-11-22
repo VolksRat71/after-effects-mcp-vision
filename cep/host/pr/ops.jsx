@@ -6,7 +6,7 @@
 var __mcp_ops = {};
 
 (function () {
-    var tables = [__mcp_queryOps, __mcp_projectOps, __mcp_editOps, __mcp_outputOps, __mcp_diagnosticOps];
+    var tables = [__mcp_queryOps, __mcp_projectOps, __mcp_editOps, __mcp_outputOps, __mcp_diagnosticOps, __mcp_bridgeTalkOps];
     for (var t = 0; t < tables.length; t++) {
         for (var k in tables[t]) {
             if (tables[t].hasOwnProperty(k)) { __mcp_ops[k] = tables[t][k]; }

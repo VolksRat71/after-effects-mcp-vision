@@ -17,6 +17,7 @@
  */
 
 #include "../json-polyfill.jsx"
+#include "../bridgetalk.jsx"
 #include "./util.jsx"
 #include "./ops-query.jsx"
 #include "./ops-project.jsx"

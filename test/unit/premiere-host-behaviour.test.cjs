@@ -19,7 +19,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const HOST = path.join(__dirname, '..', '..', 'cep', 'host');
-const FILES = ['json-polyfill.jsx', 'pr/util.jsx', 'pr/ops-query.jsx', 'pr/ops-project.jsx', 'pr/ops-edit.jsx',
+const FILES = ['json-polyfill.jsx', 'bridgetalk.jsx', 'pr/util.jsx', 'pr/ops-query.jsx', 'pr/ops-project.jsx', 'pr/ops-edit.jsx',
   'pr/ops-output.jsx', 'pr/ops.jsx', 'pr/host.jsx'];
 const TPS = 254016000000;
 const TPF_2997 = 8475667200; // ticks per frame at 29.97 fps
