@@ -306,3 +306,17 @@ test('ame_query has no formats command (sessionInfo carries them)', async () => 
   assert.ok(!TOOLS.find((t) => t.name === 'ame_query').inputSchema.properties.command.enum.includes('formats'));
   assert.strictEqual((await createToolRegistry(stubHost().fn, NO_WAIT).callTool('ame_query', { command: 'formats' })).isError, true);
 });
+
+test('start after stop resumes the stopped jobs, so a completed output is reported again', async () => {
+  const s = scene(); let ame = { isBatchRunning: true, batchStatus: 'running', completed: 0, errors: 0, lastEncodeSuccess: null };
+  const reg = createToolRegistry(stubHost({ status: () => ({ ok: true, result: ame }) }).fn, NO_WAIT);
+  await reg.callTool('ame_queue', { command: 'file', source: s.src, preset: s.preset, path: s.out });
+  await reg.callTool('ame_batch', { command: 'stop' });
+  ame = { ...ame, isBatchRunning: false, batchStatus: 'stopped' };
+  assert.strictEqual(text(await reg.callTool('ame_status', {})).jobs[0].state, 'stopped');
+  await reg.callTool('ame_batch', { command: 'start' });
+  fs.writeFileSync(s.out, 'the whole encode');
+  ame = { isBatchRunning: false, batchStatus: 'stopped', completed: 1, errors: 0, lastEncodeSuccess: true };
+  assert.strictEqual(text(await reg.callTool('ame_status', {})).jobs[0].state, 'done');
+  assert.strictEqual(text(await reg.callTool('ame_status', { command: 'finished' })).finished.length, 1);
+});

@@ -40,9 +40,12 @@ is inferred from its output file and the batch status rather than reported per
 item. A file that was already at the output path, or another format with the
 same name that already existed, is never counted as the job's output. `done`
 is only said while the batch is idle; while it runs a file is `encoding`.
-After `ame_batch stop`, a job that was not already done shows `stopped`, and
-after a failed encode the newest job shows `failed`; neither is listed as
-finished.
+After `ame_batch stop`, a job that was not already done shows `stopped` until
+the next `ame_batch start` resumes it. After a failed encode the newest job
+shows `failed` (only the newest: Media Encoder reports success for the last
+encode alone). Neither is listed as finished. While the batch runs, `finished`
+trusts a stable file plus Media Encoder's count of completed items, which is
+global: for a result that must be right, wait until the batch is idle.
 
 `ame_status finished` lists jobs whose output is complete: the file is there,
 its size did not change over a second, and Media Encoder is not still writing

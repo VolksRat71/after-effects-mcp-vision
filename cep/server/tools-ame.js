@@ -245,6 +245,7 @@ function createToolRegistry(callHost, deps = {}) {
     if (a.start !== false) {
       // The item is already in Media Encoder's queue, so a failed start must not lose the job.
       try { started = !!(await host('start', {})).started; } catch (e) { startError = String(e.message || e); }
+      if (started) jobs.forEach((j) => { j.stopped = false; });
     }
     return textContent({ jobId, output: out, started, ...(startError ? { startError } : {}), relay: relay(),
       freeGiBBefore: Number((have / 1024 ** 3).toFixed(1)) });
@@ -286,6 +287,7 @@ function createToolRegistry(callHost, deps = {}) {
         if (!b || !f || f.size === 0 || b.size !== f.size || f.path !== b.path || b.mtimeMs !== f.mtimeMs) continue;
         if (j.stopped || j.cleared || jobView(j, { ...ame, isBatchRunning: false }, j.seq === newestSeq).state !== 'done') continue;
         // While the batch runs, a stable file plus a rising completed counter is the evidence; the counter alone is not.
+        // shortcut: the counter is global, so a job whose encoder writes only at the end can pass when another job completes; wait for the batch to go idle when it matters.
         if (ame.isBatchRunning && !(ame.completed > j.completedBefore)) continue;
         const sha = await sha256(f.path);
         const after = findOutput(j);
@@ -333,6 +335,8 @@ function createToolRegistry(callHost, deps = {}) {
       }
       const res = await host(a.command, {});
       if (a.command === 'clear') jobs.forEach((j) => { j.cleared = true; });
+      // A start resumes stopped items, so they are judged again from their output like any other job.
+      if (a.command === 'start') jobs.forEach((j) => { j.stopped = false; });
       return textContent(res);
     },
     ame_status: (a) => {

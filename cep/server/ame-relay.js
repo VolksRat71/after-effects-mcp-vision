@@ -75,7 +75,7 @@ function createRelayCallHost(opts = {}) {
   async function send(relay, body, timeoutMs) {
     let token;
     try { token = fs.readFileSync(relay.tokenFile, 'utf8').trim(); } catch (e) { throw { skip: `${relay.name}: no token file` }; }
-    // The service check happens before the token goes anywhere; once a relay has passed it, it is not re-probed.
+    // The token goes in the /health request (the bridges authenticate /health), so relays are only our own fixed ports; once one passes the service check it is not re-probed.
     if (relay !== last) {
       let health;
       try { health = await request(relay.port, 'GET', '/health', token); } catch (e) { throw { skip: `${relay.name}: not answering on ${relay.port}` }; }
